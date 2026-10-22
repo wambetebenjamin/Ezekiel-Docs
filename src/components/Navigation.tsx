@@ -14,7 +14,6 @@ const navigation = [
 
 export function Navigation() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark' | 'auto'>('auto');
   const [themeDropdownOpen, setThemeDropdownOpen] = useState(false);
   const [mobileThemeDropdownOpen, setMobileThemeDropdownOpen] = useState(false);
@@ -29,14 +28,6 @@ export function Navigation() {
         : stored
       );
     }
-  }, []);
-
-  useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 10);
-    };
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
   useEffect(() => {
@@ -99,13 +90,7 @@ export function Navigation() {
   );
 
   return (
-    <header
-      className={`navigation fixed top-0 w-100 z-50 transition-all duration-300 ${
-        scrolled
-          ? 'bg-white/95 backdrop-blur-sm shadow-sm border-b border-border'
-          : 'bg-transparent'
-      }`}
-    >
+    <header className="navigation fixed top-0 w-100 z-50 bg-white/95 backdrop-blur-sm border-b border-border">
       <nav className="navbar navbar-expand-xl" aria-label="Main navigation">
         <div className="container">
           <div className="d-flex align-items-center w-100 justify-content-between">
