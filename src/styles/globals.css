@@ -1228,6 +1228,9 @@ progress {
 @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
 @keyframes pulseRing { 0% { transform: scale(1); opacity: 0.5; } 100% { transform: scale(1.5); opacity: 0; } }
 
+.animate-fade-in { animation: fadeIn 0.15s ease-out; }
+.rotate-180 { transform: rotate(180deg); }
+
 .loader-wrapper {
   position: fixed !important;
   top: 0 !important;
