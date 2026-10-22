@@ -1,19 +1,22 @@
-import { Hero } from '@/components/Hero';
-import { FeaturedDocuments } from '@/components/FeaturedDocuments';
-import { HowItWorks } from '@/components/HowItWorks';
-import { Testimonials } from '@/components/Testimonials';
-import { FAQ } from '@/components/FAQ';
-import { Footer } from '@/components/Footer';
+import HeroSection from "./components/home/hero";
+import DeveloperFlow from "./components/home/developer-flow";
+import MarkdownEditor from "./components/home/markdown-editor";
+import KeyFeature from "./components/home/key-feature";
+import Sponsors from "./components/home/sponsors";
+import { Metadata } from "next";
 
-export default function HomePage() {
+export const metadata: Metadata = {
+    title: "docsta",
+};
+
+export default function Home() {
   return (
     <>
-      <Hero />
-      <FeaturedDocuments />
-      <HowItWorks />
-      <Testimonials />
-      <FAQ />
-      <Footer />
+      <HeroSection/>
+      <DeveloperFlow/>
+      <MarkdownEditor/>
+      <KeyFeature/>
+      <Sponsors/>
     </>
   );
 }
