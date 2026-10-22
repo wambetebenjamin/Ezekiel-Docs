@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Menu, X, Sun, Moon, Monitor, MessageCircle, ChevronDown } from 'lucide-react';
@@ -18,6 +18,8 @@ export function Navigation() {
   const [themeDropdownOpen, setThemeDropdownOpen] = useState(false);
   const [mobileThemeDropdownOpen, setMobileThemeDropdownOpen] = useState(false);
   const pathname = usePathname();
+  const desktopDropdownRef = useRef<HTMLDivElement>(null);
+  const mobileDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const stored = localStorage.getItem('theme') as 'light' | 'dark' | 'auto' | null;
@@ -36,7 +38,7 @@ export function Navigation() {
     setMobileThemeDropdownOpen(false);
   }, [pathname]);
 
-  const handleThemeChange = (newTheme: 'light' | 'dark' | 'auto') => {
+  const handleThemeChange = useCallback((newTheme: 'light' | 'dark' | 'auto') => {
     setTheme(newTheme);
     localStorage.setItem('theme', newTheme);
     const resolvedTheme = newTheme === 'auto'
@@ -45,7 +47,22 @@ export function Navigation() {
     document.documentElement.setAttribute('data-bs-theme', resolvedTheme);
     setThemeDropdownOpen(false);
     setMobileThemeDropdownOpen(false);
-  };
+  }, []);
+
+  const handleClickOutside = useCallback((event: MouseEvent, ref: React.RefObject<HTMLDivElement | null>, setter: (open: boolean) => void) => {
+    if (ref.current && !ref.current.contains(event.target as Node)) {
+      setter(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleClick = (event: MouseEvent) => {
+      handleClickOutside(event, desktopDropdownRef, setThemeDropdownOpen);
+      handleClickOutside(event, mobileDropdownRef, setMobileThemeDropdownOpen);
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [handleClickOutside]);
 
   const themeIcons = {
     light: <Sun className="w-5 h-5" />,
@@ -66,28 +83,6 @@ export function Navigation() {
     { value: 'dark' as const, label: 'Dark', icon: <Moon className="w-5 h-5" /> },
     { value: 'auto' as const, label: 'System', icon: <Monitor className="w-5 h-5" /> },
   ];
-
-  const renderThemeOption = (option: typeof themeOptions[0], isActive: boolean, onClick: () => void) => (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
-        isActive
-          ? 'bg-primary/10 text-primary'
-          : 'text-body-secondary hover:bg-body-secondary hover:text-body-emphasis'
-      }`}
-      role="menuitemradio"
-      aria-checked={isActive}
-    >
-      <span className="flex-shrink-0 w-5 h-5">{option.icon}</span>
-      <span className="flex-1 text-left">{option.label}</span>
-      {isActive && (
-        <svg className="w-5 h-5 text-primary flex-shrink-0" viewBox="0 0 16 16" fill="currentColor">
-          <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z" />
-        </svg>
-      )}
-    </button>
-  );
 
   return (
     <header className="navigation fixed top-0 w-100 z-50 bg-white/95 backdrop-blur-sm border-b border-border">
@@ -143,7 +138,7 @@ export function Navigation() {
             {/* Desktop Actions */}
             <div className="d-none d-xl-flex align-items-center gap-2 ms-2">
               {/* Theme Toggle - Desktop */}
-              <div className="relative">
+              <div className="relative" ref={desktopDropdownRef}>
                 <button
                   onClick={() => setThemeDropdownOpen(!themeDropdownOpen)}
                   className="btn btn-ghost btn-sm rounded-lg d-flex align-items-center gap-2 px-3 py-2"
@@ -158,38 +153,31 @@ export function Navigation() {
                 </button>
 
                 {themeDropdownOpen && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-40"
-                      onClick={() => setThemeDropdownOpen(false)}
-                      aria-hidden="true"
-                    />
-                    <div className="absolute right-0 mt-2 w-48 z-50 animate-fade-in">
-                      <div className="bg-body-bg rounded-xl shadow-lg border border-border overflow-hidden p-1">
-                        {themeOptions.map((option) => (
-                          <button
-                            key={option.value}
-                            onClick={() => handleThemeChange(option.value)}
-                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
-                              theme === option.value
-                                ? 'bg-primary/10 text-primary'
-                                : 'text-body-secondary hover:bg-body-secondary hover:text-body-emphasis'
-                            }`}
-                            role="menuitemradio"
-                            aria-checked={theme === option.value}
-                          >
-                            <span className="flex-shrink-0 w-5 h-5">{option.icon}</span>
-                            <span className="flex-1 text-left">{option.label}</span>
-                            {theme === option.value && (
-                              <svg className="w-5 h-5 text-primary flex-shrink-0" viewBox="0 0 16 16" fill="currentColor">
-                                <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z" />
-                              </svg>
-                            )}
-                          </button>
-                        ))}
-                      </div>
+                  <div className="absolute right-0 mt-2 w-48 z-50 animate-fade-in">
+                    <div className="bg-body-bg rounded-xl shadow-lg border border-border overflow-hidden p-1">
+                      {themeOptions.map((option) => (
+                        <button
+                          key={option.value}
+                          onClick={() => handleThemeChange(option.value)}
+                          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
+                            theme === option.value
+                              ? 'bg-primary/10 text-primary'
+                              : 'text-body-secondary hover:bg-body-secondary hover:text-body-emphasis'
+                          }`}
+                          role="menuitemradio"
+                          aria-checked={theme === option.value}
+                        >
+                          <span className="flex-shrink-0 w-5 h-5">{option.icon}</span>
+                          <span className="flex-1 text-left">{option.label}</span>
+                          {theme === option.value && (
+                            <svg className="w-5 h-5 text-primary flex-shrink-0" viewBox="0 0 16 16" fill="currentColor">
+                              <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z" />
+                            </svg>
+                          )}
+                        </button>
+                      ))}
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
 
@@ -293,7 +281,7 @@ export function Navigation() {
 
             <div className="border-t border-border pt-4">
               {/* Theme Toggle - Mobile */}
-              <div className="relative mb-3">
+              <div className="relative mb-3" ref={mobileDropdownRef}>
                 <button
                   onClick={() => setMobileThemeDropdownOpen(!mobileThemeDropdownOpen)}
                   className="btn btn-outline btn-sm rounded-lg d-flex align-items-center justify-content-between w-100 py-3 px-4"
@@ -312,38 +300,31 @@ export function Navigation() {
                 </button>
 
                 {mobileThemeDropdownOpen && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-40"
-                      onClick={() => setMobileThemeDropdownOpen(false)}
-                      aria-hidden="true"
-                    />
-                    <div className="absolute bottom-full left-0 right-0 mb-2 animate-fade-in">
-                      <div className="bg-body-bg rounded-xl shadow-lg border border-border overflow-hidden p-1">
-                        {themeOptions.map((option) => (
-                          <button
-                            key={option.value}
-                            onClick={() => handleThemeChange(option.value)}
-                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
-                              theme === option.value
-                                ? 'bg-primary/10 text-primary'
-                                : 'text-body-secondary hover:bg-body-secondary hover:text-body-emphasis'
-                            }`}
-                            role="menuitemradio"
-                            aria-checked={theme === option.value}
-                          >
-                            <span className="flex-shrink-0 w-5 h-5">{option.icon}</span>
-                            <span className="flex-1 text-left">{option.label}</span>
-                            {theme === option.value && (
-                              <svg className="w-5 h-5 text-primary flex-shrink-0" viewBox="0 0 16 16" fill="currentColor">
-                                <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z" />
-                              </svg>
-                            )}
-                          </button>
-                        ))}
-                      </div>
+                  <div className="absolute bottom-full left-0 right-0 mb-2 animate-fade-in">
+                    <div className="bg-body-bg rounded-xl shadow-lg border border-border overflow-hidden p-1">
+                      {themeOptions.map((option) => (
+                        <button
+                          key={option.value}
+                          onClick={() => handleThemeChange(option.value)}
+                          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
+                            theme === option.value
+                              ? 'bg-primary/10 text-primary'
+                              : 'text-body-secondary hover:bg-body-secondary hover:text-body-emphasis'
+                          }`}
+                          role="menuitemradio"
+                          aria-checked={theme === option.value}
+                        >
+                          <span className="flex-shrink-0 w-5 h-5">{option.icon}</span>
+                          <span className="flex-1 text-left">{option.label}</span>
+                          {theme === option.value && (
+                            <svg className="w-5 h-5 text-primary flex-shrink-0" viewBox="0 0 16 16" fill="currentColor">
+                              <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z" />
+                            </svg>
+                          )}
+                        </button>
+                      ))}
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
 
