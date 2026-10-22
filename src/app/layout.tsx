@@ -66,7 +66,7 @@ export default function RootLayout({
         <LoadingScreen />
         <Providers>
           <Navigation />
-          <main id="main-content">{children}</main>
+          <main id="main-content" className="pt-navbar">{children}</main>
           <Footer />
           <WhatsAppButton />
           <VoiceTour />
