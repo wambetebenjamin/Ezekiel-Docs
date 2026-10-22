@@ -1,467 +1,154 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-
-declare global {
-  interface Window {
-    grecaptcha: {
-      execute: (siteKey: string, action: { action: string }) => Promise<string>;
-      render: (element: string | HTMLElement, parameters: any) => number;
-      reset: (widgetId?: number) => void;
-      getResponse: (widgetId?: number) => string;
-    };
-  }
-}
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import Link from 'next/link';
-import { ArrowLeft, ArrowRight, Check, FileText, Shield, Download, AlertCircle, Loader2 } from 'lucide-react';
-import { jsPDF } from 'jspdf';
-import { RECAPTCHA_SITE_KEY } from '@/lib/constants';
+import { ArrowLeft, ArrowRight, CheckCircle, FileText, Loader2, AlertCircle, Shield, Download } from 'lucide-react';
+import { DOCUMENT_TYPES } from '@/lib/constants';
+import { WHATSAPP_HREF } from '@/lib/constants';
 
-const DOCUMENT_CONFIG: Record<string, any> = {
-  'nda': {
-    name: 'Non-Disclosure Agreement (NDA)',
-    description: 'Protect confidential information shared between parties.',
-    icon: FileText,
-    steps: [
-      {
-        id: 'parties',
-        title: 'Party Details',
-        fields: [
-          { name: 'disclosingPartyName', label: 'Disclosing Party Name', type: 'text', required: true, placeholder: 'Company or individual sharing confidential info' },
-          { name: 'disclosingPartyAddress', label: 'Disclosing Party Address', type: 'textarea', required: true, placeholder: 'Physical address' },
-          { name: 'receivingPartyName', label: 'Receiving Party Name', type: 'text', required: true, placeholder: 'Company or individual receiving confidential info' },
-          { name: 'receivingPartyAddress', label: 'Receiving Party Address', type: 'textarea', required: true, placeholder: 'Physical address' },
-        ],
-      },
-      {
-        id: 'terms',
-        title: 'Agreement Terms',
-        fields: [
-          { name: 'purpose', label: 'Purpose of Disclosure', type: 'textarea', required: true, placeholder: 'Describe the business purpose for sharing confidential information' },
-          { name: 'duration', label: 'Confidentiality Duration (years)', type: 'number', required: true, min: 1, max: 10, default: 3 },
-          { name: 'jurisdiction', label: 'Governing Law Jurisdiction', type: 'select', required: true, options: ['Kenya', 'Other'], default: 'Kenya' },
-          { name: 'jurisdictionOther', label: 'If Other, Specify Country', type: 'text', required: false, showWhen: { field: 'jurisdiction', value: 'Other' } },
-        ],
-      },
-      {
-        id: 'review',
-        title: 'Review & Generate',
-        fields: [],
-        review: true,
-      },
-    ],
-  },
-  'service-agreement': {
-    name: 'Service Agreement',
-    description: 'Define terms for professional services between provider and client.',
-    icon: FileText,
-    steps: [
-      {
-        id: 'parties',
-        title: 'Party Details',
-        fields: [
-          { name: 'providerName', label: 'Service Provider Name', type: 'text', required: true },
-          { name: 'providerAddress', label: 'Provider Address', type: 'textarea', required: true },
-          { name: 'clientName', label: 'Client Name', type: 'text', required: true },
-          { name: 'clientAddress', label: 'Client Address', type: 'textarea', required: true },
-        ],
-      },
-      {
-        id: 'scope',
-        title: 'Scope & Deliverables',
-        fields: [
-          { name: 'services', label: 'Services Description', type: 'textarea', required: true, placeholder: 'Detailed description of services to be provided' },
-          { name: 'deliverables', label: 'Deliverables', type: 'textarea', required: true, placeholder: 'List specific deliverables and milestones' },
-          { name: 'timeline', label: 'Timeline / Deadline', type: 'text', required: true, placeholder: 'e.g., 30 days from start date' },
-          { name: 'startDate', label: 'Start Date', type: 'date', required: true },
-        ],
-      },
-      {
-        id: 'payment',
-        title: 'Payment Terms',
-        fields: [
-          { name: 'feeType', label: 'Fee Structure', type: 'select', required: true, options: ['Fixed Fee', 'Hourly Rate', 'Milestone Based'], default: 'Fixed Fee' },
-          { name: 'totalAmount', label: 'Total Amount (KSh)', type: 'number', required: true, min: 0, step: 1000 },
-          { name: 'paymentSchedule', label: 'Payment Schedule', type: 'select', required: true, options: ['50% upfront, 50% on completion', 'Monthly', 'Per milestone', 'Net 30'], default: '50% upfront, 50% on completion' },
-          { name: 'expenses', label: 'Expenses Covered', type: 'textarea', required: false, placeholder: 'Travel, materials, etc.' },
-        ],
-      },
-      {
-        id: 'terms',
-        title: 'Additional Terms',
-        fields: [
-          { name: 'terminationNotice', label: 'Termination Notice (days)', type: 'number', required: true, default: 14, min: 1 },
-          { name: 'confidentiality', label: 'Include Confidentiality Clause', type: 'checkbox', required: false, default: true },
-          { name: 'ipOwnership', label: 'IP Ownership', type: 'select', required: true, options: ['Client owns all IP', 'Provider retains IP, licenses to client'], default: 'Client owns all IP' },
-        ],
-      },
-      {
-        id: 'review',
-        title: 'Review & Generate',
-        fields: [],
-        review: true,
-      },
-    ],
-  },
-  'employment-contract': {
-    name: 'Employment Contract',
-    description: 'Formalize employer-employee relationship with clear terms.',
-    icon: Shield,
-    steps: [
-      {
-        id: 'employer',
-        title: 'Employer Details',
-        fields: [
-          { name: 'companyName', label: 'Company Name', type: 'text', required: true },
-          { name: 'companyAddress', label: 'Company Address', type: 'textarea', required: true },
-          { name: 'companyRegNo', label: 'Company Registration Number', type: 'text', required: true },
-          { name: 'representativeName', label: 'Authorized Representative', type: 'text', required: true },
-        ],
-      },
-      {
-        id: 'employee',
-        title: 'Employee Details',
-        fields: [
-          { name: 'employeeName', label: 'Employee Full Name', type: 'text', required: true },
-          { name: 'employeeId', label: 'National ID / Passport No.', type: 'text', required: true },
-          { name: 'employeeAddress', label: 'Employee Address', type: 'textarea', required: true },
-          { name: 'employeePhone', label: 'Phone Number', type: 'tel', required: true },
-          { name: 'employeeEmail', label: 'Email Address', type: 'email', required: true },
-        ],
-      },
-      {
-        id: 'terms',
-        title: 'Employment Terms',
-        fields: [
-          { name: 'position', label: 'Job Title / Position', type: 'text', required: true },
-          { name: 'department', label: 'Department', type: 'text', required: false },
-          { name: 'startDate', label: 'Start Date', type: 'date', required: true },
-          { name: 'contractType', label: 'Contract Type', type: 'select', required: true, options: ['Permanent', 'Fixed Term', 'Probationary'], default: 'Permanent' },
-          { name: 'endDate', label: 'End Date (if Fixed Term)', type: 'date', required: false, showWhen: { field: 'contractType', value: 'Fixed Term' } },
-          { name: 'probationPeriod', label: 'Probation Period (months)', type: 'number', required: true, default: 3, min: 0, max: 12 },
-        ],
-      },
-      {
-        id: 'compensation',
-        title: 'Compensation & Benefits',
-        fields: [
-          { name: 'basicSalary', label: 'Basic Monthly Salary (KSh)', type: 'number', required: true, min: 0, step: 1000 },
-          { name: 'allowances', label: 'Allowances (Housing, Transport, etc.)', type: 'textarea', required: false },
-          { name: 'workingHours', label: 'Working Hours per Week', type: 'number', required: true, default: 45, min: 1, max: 60 },
-          { name: 'leaveDays', label: 'Annual Leave Days', type: 'number', required: true, default: 21, min: 0 },
-          { name: 'medicalCover', label: 'Medical Cover Provided', type: 'checkbox', required: false, default: true },
-          { name: 'nssfContribution', label: 'NSSF Contribution', type: 'checkbox', required: false, default: true },
-          { name: 'nhifContribution', label: 'NHIF Contribution', type: 'checkbox', required: false, default: true },
-        ],
-      },
-      {
-        id: 'review',
-        title: 'Review & Generate',
-        fields: [],
-        review: true,
-      },
-    ],
-  },
-  'freelancer-contract': {
-    name: 'Freelancer Contract',
-    description: 'Establish terms for independent contractor engagements.',
-    icon: FileText,
-    steps: [
-      {
-        id: 'parties',
-        title: 'Party Details',
-        fields: [
-          { name: 'clientName', label: 'Client Name', type: 'text', required: true },
-          { name: 'clientAddress', label: 'Client Address', type: 'textarea', required: true },
-          { name: 'freelancerName', label: 'Freelancer Name', type: 'text', required: true },
-          { name: 'freelancerId', label: 'Freelancer ID / Passport', type: 'text', required: true },
-          { name: 'freelancerAddress', label: 'Freelancer Address', type: 'textarea', required: true },
-        ],
-      },
-      {
-        id: 'scope',
-        title: 'Project Scope',
-        fields: [
-          { name: 'projectTitle', label: 'Project Title', type: 'text', required: true },
-          { name: 'scopeDescription', label: 'Scope of Work', type: 'textarea', required: true },
-          { name: 'deliverables', label: 'Deliverables & Milestones', type: 'textarea', required: true },
-          { name: 'revisions', label: 'Number of Revisions Included', type: 'number', required: true, default: 2, min: 0 },
-        ],
-      },
-      {
-        id: 'payment',
-        title: 'Payment Terms',
-        fields: [
-          { name: 'feeType', label: 'Fee Type', type: 'select', required: true, options: ['Fixed Price', 'Hourly Rate', 'Per Deliverable'], default: 'Fixed Price' },
-          { name: 'totalFee', label: 'Total Fee (KSh)', type: 'number', required: true, min: 0, step: 1000 },
-          { name: 'paymentTerms', label: 'Payment Terms', type: 'select', required: true, options: ['50% deposit, 50% on delivery', 'Net 15', 'Net 30', 'Per milestone'], default: '50% deposit, 50% on delivery' },
-        ],
-      },
-      {
-        id: 'terms',
-        title: 'Terms & IP',
-        fields: [
-          { name: 'ipOwnership', label: 'IP Ownership', type: 'select', required: true, options: ['Client owns all work product', 'Freelancer retains copyright, grants license'], default: 'Client owns all work product' },
-          { name: 'confidentiality', label: 'Confidentiality Clause', type: 'checkbox', required: false, default: true },
-          { name: 'termination', label: 'Termination Notice (days)', type: 'number', required: true, default: 7, min: 1 },
-        ],
-      },
-      {
-        id: 'review',
-        title: 'Review & Generate',
-        fields: [],
-        review: true,
-      },
-    ],
-  },
-  'sale-agreement': {
-    name: 'Sale Agreement',
-    description: 'Document terms for sale of goods or property.',
-    icon: Shield,
-    steps: [
-      {
-        id: 'parties',
-        title: 'Party Details',
-        fields: [
-          { name: 'sellerName', label: 'Seller Name', type: 'text', required: true },
-          { name: 'sellerId', label: 'Seller ID / Passport', type: 'text', required: true },
-          { name: 'sellerAddress', label: 'Seller Address', type: 'textarea', required: true },
-          { name: 'buyerName', label: 'Buyer Name', type: 'text', required: true },
-          { name: 'buyerId', label: 'Buyer ID / Passport', type: 'text', required: true },
-          { name: 'buyerAddress', label: 'Buyer Address', type: 'textarea', required: true },
-        ],
-      },
-      {
-        id: 'property',
-        title: 'Property/Goods Details',
-        fields: [
-          { name: 'itemType', label: 'Type', type: 'select', required: true, options: ['Real Property', 'Motor Vehicle', 'Goods/Equipment', 'Other'] },
-          { name: 'description', label: 'Detailed Description', type: 'textarea', required: true },
-          { name: 'location', label: 'Location / Address', type: 'text', required: false },
-          { name: 'titleDeed', label: 'Title Deed / Registration No.', type: 'text', required: false },
-        ],
-      },
-      {
-        id: 'price',
-        title: 'Price & Payment',
-        fields: [
-          { name: 'purchasePrice', label: 'Purchase Price (KSh)', type: 'number', required: true, min: 0, step: 10000 },
-          { name: 'deposit', label: 'Deposit Amount (KSh)', type: 'number', required: true, default: 0, min: 0, step: 10000 },
-          { name: 'balanceDue', label: 'Balance Due Date', type: 'date', required: true },
-          { name: 'paymentMethod', label: 'Payment Method', type: 'select', required: true, options: ['Bank Transfer', 'Cheque', 'Cash', 'Other'] },
-        ],
-      },
-      {
-        id: 'review',
-        title: 'Review & Generate',
-        fields: [],
-        review: true,
-      },
-    ],
-  },
-  'tenancy-agreement': {
-    name: 'Tenancy Agreement',
-    description: 'Create rental agreements for residential or commercial property.',
-    icon: Shield,
-    steps: [
-      {
-        id: 'parties',
-        title: 'Party Details',
-        fields: [
-          { name: 'landlordName', label: 'Landlord Name', type: 'text', required: true },
-          { name: 'landlordId', label: 'Landlord ID / Passport', type: 'text', required: true },
-          { name: 'landlordAddress', label: 'Landlord Address', type: 'textarea', required: true },
-          { name: 'tenantName', label: 'Tenant Name', type: 'text', required: true },
-          { name: 'tenantId', label: 'Tenant ID / Passport', type: 'text', required: true },
-          { name: 'tenantAddress', label: 'Tenant Current Address', type: 'textarea', required: true },
-        ],
-      },
-      {
-        id: 'property',
-        title: 'Property Details',
-        fields: [
-          { name: 'propertyAddress', label: 'Property Address', type: 'textarea', required: true },
-          { name: 'propertyType', label: 'Property Type', type: 'select', required: true, options: ['Residential', 'Commercial', 'Mixed Use'] },
-          { name: 'description', label: 'Description (rooms, amenities, etc.)', type: 'textarea', required: true },
-          { name: 'furnished', label: 'Furnished', type: 'checkbox', required: false, default: false },
-        ],
-      },
-      {
-        id: 'terms',
-        title: 'Tenancy Terms',
-        fields: [
-          { name: 'startDate', label: 'Tenancy Start Date', type: 'date', required: true },
-          { name: 'duration', label: 'Duration (months)', type: 'number', required: true, default: 12, min: 1 },
-          { name: 'rentAmount', label: 'Monthly Rent (KSh)', type: 'number', required: true, min: 0, step: 1000 },
-          { name: 'deposit', label: 'Security Deposit (months)', type: 'number', required: true, default: 1, min: 0 },
-          { name: 'rentDueDate', label: 'Rent Due Day of Month', type: 'number', required: true, default: 1, min: 1, max: 28 },
-          { name: 'utilities', label: 'Utilities Included', type: 'textarea', required: false, placeholder: 'Water, electricity, internet, etc.' },
-        ],
-      },
-      {
-        id: 'review',
-        title: 'Review & Generate',
-        fields: [],
-        review: true,
-      },
-    ],
-  },
-};
-
-const baseSchema = z.object({});
-
-function getSchemaForStep(config: any, stepIndex: number) {
-  const step = config.steps[stepIndex];
-  const shape: Record<string, any> = {};
-  
-  step.fields.forEach((field: any) => {
-    let fieldSchema: any;
-    
-    switch (field.type) {
-      case 'text':
-        fieldSchema = z.string().min(field.required ? 1 : 0, `${field.label} is required`);
-        break;
-      case 'textarea':
-        fieldSchema = z.string().min(field.required ? 1 : 0, `${field.label} is required`);
-        break;
-      case 'email':
-        fieldSchema = z.string().email('Invalid email address');
-        break;
-      case 'tel':
-        fieldSchema = z.string().regex(/^[\+]?[(]?[0-9]{1,3}[)]?[-\s\.]?[(]?[0-9]{1,3}[)]?[-\s\.]?[0-9]{4,6}$/, 'Invalid phone number');
-        break;
-      case 'number':
-        fieldSchema = z.number({ invalid_type_error: 'Must be a number' }).min(field.min ?? 0).max(field.max ?? 999999);
-        break;
-      case 'date':
-        fieldSchema = z.string().min(1, `${field.label} is required`);
-        break;
-      case 'select':
-        fieldSchema = z.string().min(1, `${field.label} is required`);
-        break;
-      case 'checkbox':
-        fieldSchema = z.boolean();
-        break;
-    }
-    
-    if (field.required === false && field.type !== 'checkbox') {
-      fieldSchema = fieldSchema.optional().or(z.literal(''));
-    }
-    
-    shape[field.name] = fieldSchema;
-  });
-
-  // Handle conditional fields
-  step.fields.forEach((field: any) => {
-    if (field.showWhen) {
-      // These are handled in the UI, not in the schema
-    }
-  });
-
-  return z.object(shape);
+declare global {
+  interface Window {
+    grecaptcha: {
+      ready: (cb: () => void) => void;
+      execute: (siteKey: string, options: { action: string }) => Promise<string>;
+      render: (container: HTMLElement, options: { sitekey: string; callback: (token: string) => void; 'expired-callback': () => void; size: 'invisible' }) => number;
+      reset: (widgetId: number) => void;
+    };
+  }
 }
 
-export default function GenerateDocumentPage() {
+type FormData = Record<string, string | number | boolean>;
+
+const createSchema = (fields: typeof DOCUMENT_TYPES[0]['fields']) => {
+  const shape: Record<string, z.ZodTypeAny> = {};
+  fields?.forEach(field => {
+    if (field.type === 'number') {
+      shape[field.name] = z.number({ required_error: `${field.label} is required` }).min(0);
+    } else if (field.type === 'select') {
+      shape[field.name] = z.string().min(1, `${field.label} is required`);
+    } else if (field.type === 'checkbox') {
+      shape[field.name] = z.boolean();
+    } else if (field.type === 'date') {
+      shape[field.name] = z.string().min(1, `${field.label} is required`);
+    } else if (field.type === 'textarea') {
+      shape[field.name] = z.string().min(1, `${field.label} is required`);
+    } else {
+      shape[field.name] = z.string().min(1, `${field.label} is required`);
+    }
+  });
+  return z.object(shape);
+};
+
+const steps = [
+  { id: 1, title: 'Party Details', description: 'Enter names, IDs, and addresses' },
+  { id: 2, title: 'Document Details', description: 'Fill in document-specific fields' },
+  { id: 3, title: 'Review & Confirm', description: 'Verify all information before generating' },
+];
+
+export default function GeneratePage() {
   const params = useParams();
   const router = useRouter();
   const slug = params.slug as string;
-  const config = DOCUMENT_CONFIG[slug];
+  const document = DOCUMENT_TYPES.find(d => d.slug === slug);
 
-  const [currentStep, setCurrentStep] = useState(0);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [generatedPdf, setGeneratedPdf] = useState<Blob | null>(null);
-  const [showRecaptchaV2, setShowRecaptchaV2] = useState(false);
-  const [recaptchaToken, setRecaptchaToken] = useState<string | null>(null);
-  const formDataRef = useRef<Record<string, any>>({});
-
-  if (!config) {
+  if (!document) {
     return (
-      <div className="container py-12 text-center">
-        <AlertCircle className="w-16 h-16 mx-auto text-danger mb-4" />
-        <h2 className="text-2xl fw-bold text-body-emphasis">Document Not Found</h2>
-        <p className="text-body-secondary mt-2">The document type "{slug}" does not exist.</p>
-        <Link href="/documents" className="btn btn-primary mt-4">Browse Documents</Link>
+      <div className="min-h-screen flex items-center justify-center bg-body-bg">
+        <div className="text-center p-8">
+          <FileText className="w-16 h-16 text-body-tertiary mx-auto mb-4" />
+          <h1 className="text-2xl fw-bold text-body-emphasis mb-2">Document Not Found</h1>
+          <p className="text-body-secondary mb-4">The requested document type does not exist.</p>
+          <Link href="/documents" className="btn btn-primary">Browse Documents</Link>
+        </div>
       </div>
     );
   }
 
-  const step = config.steps[currentStep];
-  const isLastStep = currentStep === config.steps.length - 1;
-  const isReviewStep = step.review === true;
+  const [currentStep, setCurrentStep] = useState(1);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [recaptchaToken, setRecaptchaToken] = useState<string | null>(null);
+  const [showRecaptchaV2, setShowRecaptchaV2] = useState(false);
+  const recaptchaWidgetId = useRef<number | null>(null);
+  const formDataRef = useRef<FormData>({});
 
-  // Create form with dynamic schema
-  const stepSchema = getSchemaForStep(config, currentStep);
-  const form = useForm<Record<string, any>>({
-    resolver: zodResolver(stepSchema),
-    defaultValues: step.fields.reduce((acc: any, f: any) => {
-      if (f.default !== undefined) acc[f.name] = f.default;
+  const schema = createSchema(document.fields);
+  type FormValues = z.infer<typeof schema>;
+
+  const {
+    register,
+    handleSubmit,
+    watch,
+    setValue,
+    getValues,
+    control,
+    formState: { errors },
+  } = useForm<FormValues>({
+    resolver: zodResolver(schema),
+    defaultValues: document.fields.reduce((acc, field) => {
+      if (field.default !== undefined) acc[field.name] = field.default;
       return acc;
-    }, {}),
+    }, {} as Partial<FormValues>),
     mode: 'onChange',
   });
 
-  const { watch, setValue, getValues, reset, formState: { errors } } = form;
-
   const watchedValues = watch();
 
-  // Persist form data across steps
   useEffect(() => {
-    const saved = localStorage.getItem(`ezekiel-docs-${slug}`);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        Object.keys(parsed).forEach(key => {
-          if (form.getValues().hasOwnProperty(key) || step.fields.some((f: any) => f.name === key)) {
-            form.setValue(key, parsed[key], { shouldValidate: true });
-          }
-        });
-      } catch (e) {
-        console.warn('Failed to parse saved form data');
-      }
-    }
-  }, []);
+    formDataRef.current = watchedValues;
+  }, [watchedValues]);
 
-  useEffect(() => {
-    const subscription = watch((value) => {
-      const allData = { ...formDataRef.current, ...value };
-      formDataRef.current = allData;
-      localStorage.setItem(`ezekiel-docs-${slug}`, JSON.stringify(allData));
+  const goToStep = (step: number) => {
+    if (step > currentStep) {
+      const stepFields = document.fields.filter((f: typeof document.fields[0]) => {
+        if (currentStep === 1) return ['party1Name', 'party1Address', 'party2Name', 'party2Address', 'party1Id', 'party2Id', 'employeeId', 'tenantId', 'freelancerPin', 'consultantPin', 'contractorPin', 'borrowerId', 'donorId', 'attorneyId', 'partner1Name', 'partner2Name', 'shareholder1Name'].includes(f.name);
+        return true;
+      });
+      const isValid = stepFields.every(f => !errors[f.name as keyof FormValues]);
+      if (!isValid) return;
+    }
+    setCurrentStep(step);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleRecaptchaV2Callback = (token: string) => {
+    setRecaptchaToken(token);
+  };
+
+  const handleRecaptchaV2Expired = () => {
+    setRecaptchaToken(null);
+  };
+
+  const executeRecaptchaV3 = async () => {
+    const siteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
+    if (!siteKey || !window.grecaptcha) return null;
+
+    return new Promise<string>((resolve) => {
+      window.grecaptcha.ready(() => {
+        window.grecaptcha.execute(siteKey, { action: 'generate_document' })
+          .then(resolve)
+          .catch(() => resolve(''));
+      });
     });
-    return () => subscription.unsubscribe();
-  }, [watch]);
-
-  const handleNext = async () => {
-    const valid = await form.trigger();
-    if (valid) {
-      if (isLastStep) {
-        await handleSubmit();
-      } else {
-        setCurrentStep(prev => prev + 1);
-      }
-    }
   };
 
-  const handleBack = () => {
-    setCurrentStep(prev => prev - 1);
-  };
-
-  const handleSubmit = async () => {
+  const onSubmit = async (data: FormValues) => {
     setIsSubmitting(true);
     setSubmitError(null);
 
     try {
-      const allData = formDataRef.current;
-      
-      // Verify reCAPTCHA v3
-      if (typeof window !== 'undefined' && window.grecaptcha) {
-        const token = await window.grecaptcha.execute(RECAPTCHA_SITE_KEY, { action: 'generate_document' });
-        setRecaptchaToken(token);
+      let token = await executeRecaptchaV3();
+
+      if (!token || (token && parseFloat(token) < 0.5)) {
+        setShowRecaptchaV2(true);
+        setIsSubmitting(false);
+        return;
       }
 
       const response = await fetch('/api/generate-document', {
@@ -469,8 +156,8 @@ export default function GenerateDocumentPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           documentType: slug,
-          formData: allData,
-          recaptchaToken,
+          formData: data,
+          recaptchaToken: token,
         }),
       });
 
@@ -479,337 +166,407 @@ export default function GenerateDocumentPage() {
       if (!response.ok) {
         if (result.requireV2) {
           setShowRecaptchaV2(true);
-          setSubmitError('Please complete the verification challenge.');
+          setIsSubmitting(false);
           return;
         }
         throw new Error(result.error || 'Failed to generate document');
       }
 
-      if (result.downloadUrl) {
-        const pdfResponse = await fetch(result.downloadUrl);
-        const pdfBlob = await pdfResponse.blob();
-        setGeneratedPdf(pdfBlob);
-        
-        // Clear saved form data
-        localStorage.removeItem(`ezekiel-docs-${slug}`);
-        formDataRef.current = {};
-      }
-    } catch (error: any) {
-      setSubmitError(error.message || 'An error occurred. Please try again.');
-    } finally {
+      setDownloadUrl(result.downloadUrl);
+      goToStep(4);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'An error occurred');
       setIsSubmitting(false);
     }
   };
 
-  const handleRecaptchaV2Callback = (token: string) => {
-    setRecaptchaToken(token);
-    setShowRecaptchaV2(false);
-    handleSubmit();
-  };
-
-  const downloadPdf = () => {
-    if (generatedPdf) {
-      const url = URL.createObjectURL(generatedPdf);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${config.name.replace(/\s+/g, '-')}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
+  const handleDownload = () => {
+    if (downloadUrl) {
+      window.open(downloadUrl, '_blank');
     }
   };
 
-  const renderField = (field: any, index: number) => {
-    const showField = !field.showWhen || watchedValues[field.showWhen.field] === field.showWhen.value;
-    if (!showField) return null;
+  const partyFields = document.fields.filter((f: typeof document.fields[0]) =>
+    ['party1Name', 'party1Address', 'party2Name', 'party2Address', 'party1Id', 'party2Id', 'employeeId', 'tenantId', 'freelancerPin', 'consultantPin', 'contractorPin', 'borrowerId', 'donorId', 'attorneyId', 'partner1Name', 'partner2Name', 'shareholder1Name', 'providerName', 'providerAddress', 'clientName', 'clientAddress', 'landlordName', 'landlordAddress', 'tenantName', 'tenantAddress', 'sellerName', 'sellerAddress', 'buyerName', 'buyerAddress', 'lenderName', 'lenderAddress', 'borrowerName', 'borrowerAddress', 'freelancerName', 'freelancerAddress', 'consultantName', 'consultantAddress', 'companyName', 'companyAddress', 'contractorName', 'contractorAddress', 'shareholder2Name', 'shareholder3Name'].includes(f.name)
+  );
 
-    const error = errors[field.name];
-    const isRequired = field.required !== false;
+  const documentFields = document.fields.filter((f: typeof document.fields[0]) =>
+    !['party1Name', 'party1Address', 'party2Name', 'party2Address', 'party1Id', 'party2Id', 'employeeId', 'tenantId', 'freelancerPin', 'consultantPin', 'contractorPin', 'borrowerId', 'donorId', 'attorneyId', 'partner1Name', 'partner2Name', 'shareholder1Name', 'providerName', 'providerAddress', 'clientName', 'clientAddress', 'landlordName', 'landlordAddress', 'tenantName', 'tenantAddress', 'sellerName', 'sellerAddress', 'buyerName', 'buyerAddress', 'lenderName', 'lenderAddress', 'borrowerName', 'borrowerAddress', 'freelancerName', 'freelancerAddress', 'consultantName', 'consultantAddress', 'companyName', 'companyAddress', 'contractorName', 'contractorAddress', 'shareholder2Name', 'shareholder3Name'].includes(f.name)
+  );
 
-    return (
-      <motion.div
-        key={field.name}
-        className={`col-12 col-md-6 ${field.type === 'textarea' || field.fullWidth ? 'col-12' : ''}`}
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: index * 0.05 }}
-      >
-        <label className="form-label text-sm" htmlFor={field.name}>
-          {field.label} {isRequired && <span className="text-danger-emphasis">*</span>}
-        </label>
-        <Controller
-          name={field.name}
-          control={form.control}
-          rules={{ required: isRequired ? true : undefined }}
-          render={({ field: controllerField }) => {
-            const fieldProps = {
-              ...controllerField,
-              id: field.name,
-              className: `form-control form-control-sm ${error ? 'is-invalid' : ''}`,
-              onChange: (e: any) => controllerField.onChange(e.target.value),
-              onBlur: controllerField.onBlur,
-            };
+  const renderField = (field: typeof document.fields[0]) => {
+    const error = errors[field.name as keyof FormValues];
+    const fieldProps = register(field.name);
 
-            switch (field.type) {
-              case 'textarea':
-                return (
-                  <textarea
-                    {...fieldProps}
-                    rows={4}
-                    placeholder={field.placeholder}
-                    style={{ fontSize: '16px' }}
-                  />
-                );
-              case 'select':
-                return (
-                  <select {...fieldProps} style={{ fontSize: '16px' }}>
-                    <option value="">Select...</option>
-                    {field.options.map((opt: string) => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
-                );
-              case 'checkbox':
-                return (
-                  <div className="form-check">
-                    <input
-                      type="checkbox"
-                      {...fieldProps}
-                      className="form-check-input"
-                      checked={controllerField.value || false}
-                      onChange={(e) => controllerField.onChange(e.target.checked)}
-                    />
-                    <label className="form-check-label text-sm" htmlFor={field.name}>
-                      {field.label}
-                    </label>
-                  </div>
-                );
-              case 'date':
-                return <input {...fieldProps} type="date" style={{ fontSize: '16px' }} />;
-              case 'number':
-                return <input {...fieldProps} type="number" min={field.min} max={field.max} step={field.step} style={{ fontSize: '16px' }} />;
-              default:
-                return <input {...fieldProps} type={field.type} placeholder={field.placeholder} style={{ fontSize: '16px' }} />;
-            }
-          }}
-        />
-        {error && (
-          <div className="invalid-feedback text-xs d-block mt-1">{typeof error.message === 'string' ? error.message : 'Invalid input'}</div>
-        )}
-      </motion.div>
-    );
-  };
-
-  const renderReview = () => {
-    const allData = { ...formDataRef.current, ...getValues() };
-    
-    return (
-      <div className="card h-100 border-0 shadow-sm bg-body-bg">
-        <div className="card-body p-4 p-md-5">
-          <h4 className="text-body-emphasis fw-semibold mb-4">Review Your Document</h4>
-          <p className="text-body-secondary text-sm mb-4">
-            Please verify all information below before generating your {config.name.toLowerCase()}.
-          </p>
-          
-          <div className="max-h-[50vh] overflow-y-auto space-y-4">
-            {config.steps.flatMap((s: any) => s.fields).map((field: any) => {
-              const value = allData[field.name];
-              if (value === undefined || value === '' || value === false) return null;
-              
-              return (
-                <div key={field.name} className="d-flex flex-column flex-sm-row gap-2 p-3 bg-body-tertiary rounded-3">
-                  <span className="fw-medium text-body-emphasis text-sm flex-shrink-0" style={{ minWidth: '200px' }}>
-                    {field.label}
-                  </span>
-                  <span className="text-body-secondary text-sm flex-1 text-break">
-                    {typeof value === 'boolean' ? (value ? 'Yes' : 'No') : value}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-
-          {submitError && (
-            <div className="alert alert-danger mt-4" role="alert">
-              <AlertCircle className="w-5 h-5 me-2 d-inline-block" />
-              {submitError}
-            </div>
-          )}
-
-          {showRecaptchaV2 && (
-            <div className="mt-4 p-3 bg-warning bg-opacity-10 rounded-3 border border-warning">
-              <p className="text-warning-emphasis text-sm mb-2">
-                Additional verification required. Please complete the challenge below.
-              </p>
-              <div
-                className="g-recaptcha"
-                data-sitekey={RECAPTCHA_SITE_KEY}
-                data-callback={handleRecaptchaV2Callback}
-                data-size="normal"
-              ></div>
-            </div>
-          )}
-
-          <div className="mt-4 flex flex-col sm:flex-row gap-3 justify-content-end">
-            <button
-              onClick={handleBack}
-              type="button"
-              className="btn btn-outline-secondary fw-semibold w-full sm:w-auto"
-            >
-              <ArrowLeft className="w-4 h-4 me-1" /> Back
-            </button>
-            <button
-              onClick={handleNext}
-              disabled={isSubmitting}
-              className="btn btn-primary fw-semibold w-full sm:w-auto"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 me-1 animate-spin" /> Generating...
-                </>
-              ) : (
-                <>
-                  Generate Document
-                  <Download className="w-4 h-4 ms-1" />
-                </>
-              )}
-            </button>
-          </div>
-
-          {generatedPdf && (
-            <div className="mt-4 p-4 bg-success bg-opacity-10 border border-success rounded-3 animate-fade-in">
-              <div className="d-flex align-items-center justify-content-between flex-wrap gap-3">
-                <div className="d-flex align-items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-success/10 flex items-center justify-center text-success">
-                    <Check className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <p className="m-0 fw-semibold text-success-emphasis">Document Generated Successfully!</p>
-                    <p className="m-0 text-success-emphasis text-sm">Your PDF is ready for download.</p>
-                  </div>
-                </div>
-                <button
-                  onClick={downloadPdf}
-                  className="btn btn-success fw-semibold shimmer-effect"
-                >
-                  <Download className="w-4 h-4 me-1" /> Download PDF
-                </button>
-              </div>
-            </div>
-          )}
+    if (field.type === 'select') {
+      return (
+        <div className="mb-3" key={field.name}>
+          <label className="form-label text-sm">{field.label} <span className="text-danger-emphasis">*</span></label>
+          <Controller
+            name={field.name}
+            control={control}
+            rules={{ required: `${field.label} is required` }}
+            render={({ field: { onChange, onBlur, value, ref } }) => (
+              <select
+                {...fieldProps}
+                ref={ref}
+                onChange={e => onChange(e.target.value)}
+                onBlur={onBlur}
+                className={`form-control form-control-sm ${error ? 'is-invalid' : ''}`}
+              >
+                <option value="">Select {field.label}</option>
+                {(field as { options?: string[] }).options?.map((opt: string) => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            )}
+          />
+          {error && 'message' in error && <div className="invalid-feedback text-xs">{error.message as string}</div>}
         </div>
+      );
+    }
+
+    if (field.type === 'checkbox') {
+      return (
+        <div className="mb-3 form-check" key={field.name}>
+          <Controller
+            name={field.name}
+            control={control}
+            rules={{ required: field.required ? `${field.label} is required` : undefined }}
+            render={({ field: { onChange, value } }) => (
+              <input
+                type="checkbox"
+                className={`form-check-input ${error ? 'is-invalid' : ''}`}
+                id={field.name}
+                checked={value ?? false}
+                onChange={e => onChange(e.target.checked)}
+              />
+            )}
+          />
+          <label className="form-check-label text-sm" htmlFor={field.name}>
+            {field.label}
+          </label>
+          {error && 'message' in error && <div className="invalid-feedback text-xs">{error.message as string}</div>}
+        </div>
+      );
+    }
+
+    if (field.type === 'textarea') {
+      return (
+        <div className="mb-3" key={field.name}>
+          <label className="form-label text-sm">{field.label} <span className="text-danger-emphasis">*</span></label>
+          <textarea
+            {...fieldProps}
+            rows={3}
+            className={`form-control form-control-sm ${error ? 'is-invalid' : ''}`}
+            placeholder={`Enter ${field.label.toLowerCase()}`}
+          />
+          {error && 'message' in error && <div className="invalid-feedback text-xs">{error.message as string}</div>}
+        </div>
+      );
+    }
+
+    if (field.type === 'date') {
+      return (
+        <div className="mb-3" key={field.name}>
+          <label className="form-label text-sm">{field.label} <span className="text-danger-emphasis">*</span></label>
+          <input
+            {...fieldProps}
+            type="date"
+            className={`form-control form-control-sm ${error ? 'is-invalid' : ''}`}
+          />
+          {error && 'message' in error && <div className="invalid-feedback text-xs">{error.message as string}</div>}
+        </div>
+      );
+    }
+
+    if (field.type === 'number') {
+      return (
+        <div className="mb-3" key={field.name}>
+          <label className="form-label text-sm">{field.label} <span className="text-danger-emphasis">*</span></label>
+          <input
+            {...fieldProps}
+            type="number"
+            step={(field as { step?: number }).step || 1}
+            className={`form-control form-control-sm ${error ? 'is-invalid' : ''}`}
+            placeholder={`Enter ${field.label.toLowerCase()}`}
+          />
+          {error && 'message' in error && <div className="invalid-feedback text-xs">{error.message as string}</div>}
+        </div>
+      );
+    }
+
+    return (
+      <div className="mb-3" key={field.name}>
+        <label className="form-label text-sm">{field.label} <span className="text-danger-emphasis">*</span></label>
+        <input
+          {...fieldProps}
+          type="text"
+          className={`form-control form-control-sm ${error ? 'is-invalid' : ''}`}
+          placeholder={`Enter ${field.label.toLowerCase()}`}
+        />
+        {error && 'message' in error && <div className="invalid-feedback text-xs">{error.message as string}</div>}
       </div>
     );
   };
 
   return (
-    <div className="min-vh-100">
-      {/* Progress Header */}
-      <header className="bg-body-tertiary border-b border-border sticky top-0 z-40">
+    <div className="min-h-screen bg-body-bg">
+      {/* Progress Bar */}
+      <div className="fixed top-0 left-0 right-0 z-50 bg-body-bg border-b border-border">
         <div className="container">
           <div className="d-flex align-items-center justify-content-between py-3">
-            <Link
-              href="/documents"
-              className="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1"
-              aria-label="Back to documents"
-            >
-              <ArrowLeft className="w-4 h-4" /> Back
+            <Link href="/documents" className="btn btn-ghost btn-sm p-2" aria-label="Back to documents">
+              <ArrowLeft className="w-5 h-5" />
             </Link>
-            <div className="text-center flex-1 px-4">
-              <h1 className="m-0 text-body-emphasis fw-bold text-lg">{config.name}</h1>
-              <p className="m-0 text-body-secondary text-sm">{config.description}</p>
+            <div className="flex-1 px-4 max-w-2xl mx-auto">
+              <div className="form-progress">
+                <motion.div
+                  className="form-progress-bar"
+                  style={{ width: `${(currentStep / 4) * 100}%` }}
+                  animate={{ width: `${(currentStep / 4) * 100}%` }}
+                  transition={{ duration: 0.5, ease: 'easeOut' }}
+                />
+              </div>
+              <div className="d-flex justify-content-between text-xs text-body-tertiary mt-1">
+                {steps.map((step: typeof steps[0], i: number) => (
+                  <span key={step.id} className={i + 1 <= currentStep ? 'text-primary fw-semibold' : ''}>
+                    Step {step.id}
+                  </span>
+                ))}
+                <span className={currentStep === 4 ? 'text-primary fw-semibold' : ''}>Complete</span>
+              </div>
             </div>
-            <div className="w-24" />
-          </div>
-          
-          {/* Progress Bar */}
-          <div className="px-4 pb-3">
-            <div className="progress" style={{ height: '6px' }} role="progressbar" aria-valuenow={currentStep + 1} aria-valuemin={1} aria-valuemax={config.steps.length} aria-label="Form progress">
-              <div
-                className="progress-bar bg-primary"
-                style={{ width: `${((currentStep + 1) / config.steps.length) * 100}%` }}
-              ></div>
-            </div>
-            <div className="d-flex justify-content-between mt-2 text-xs text-body-secondary">
-              {config.steps.map((s: any, i: number) => (
-                <span key={s.id} className={i <= currentStep ? 'fw-semibold text-primary' : ''}>
-                  {s.title}
-                </span>
-              ))}
-            </div>
+            <div className="w-40" />
           </div>
         </div>
-      </header>
+      </div>
 
-      {/* Form Content */}
-      <main className="py-6">
+      <main className="pt-20 pb-6">
         <div className="container">
           <div className="row justify-content-center">
-            <div className="col-12 col-xl-8 col-xxl-7">
+            <div className="col-12 col-xl-8">
+              {/* Document Header */}
+              <div className="mb-4 mb-md-5">
+                <div className="d-flex align-items-center gap-3 mb-3">
+                  <Link href="/documents" className="btn btn-ghost btn-sm p-2" aria-label="Back to documents">
+                    <ArrowLeft className="w-5 h-5" />
+                  </Link>
+                  <div>
+                    <span className="badge bg-primary/10 text-primary text-xs px-3 py-2 mb-2">
+                      {document.category}
+                    </span>
+                    <h1 className="m-0 text-body-emphasis text-3xl fw-bold">{document.name}</h1>
+                  </div>
+                </div>
+                <p className="m-0 text-body-secondary text-lg">{document.description}</p>
+              </div>
+
+              {/* Step Indicator */}
+              <div className="mb-4 d-flex align-items-center">
+                {steps.map((step: typeof steps[0], i: number) => (
+                  <div key={step.id} style={{ display: 'contents' }}>
+                    <div className={`d-flex align-items-center ${i < steps.length - 1 ? 'flex-1' : ''}`}>
+                      <div className={`d-flex align-items-center gap-2 ${i + 1 === currentStep ? 'text-primary' : 'text-body-tertiary'}`}>
+                        <div className={`w-8 h-8 rounded-circle d-flex align-items-center justify-content-center fw-semibold text-sm ${i + 1 < currentStep ? 'bg-success text-white' : i + 1 === currentStep ? 'bg-primary text-white' : 'bg-body-tertiary border border-border'}`}>
+                          {i + 1 < currentStep ? <CheckCircle className="w-5 h-5" /> : step.id}
+                        </div>
+                        <span className="d-none d-md-block fw-medium text-sm">{step.title}</span>
+                      </div>
+                      {i < steps.length - 1 && (
+                        <div className={`flex-1 h-2 mx-2 ${i + 1 < currentStep ? 'bg-success' : 'bg-body-tertiary'} rounded`} />
+                      )}
+                    </div>
+                  </div>
+                ))}
+                <div className={`d-flex align-items-center gap-2 ${currentStep === 4 ? 'text-primary' : 'text-body-tertiary'}`}>
+                  <div className={`w-8 h-8 rounded-circle d-flex align-items-center justify-content-center fw-semibold text-sm ${currentStep === 4 ? 'bg-primary text-white' : 'bg-body-tertiary border border-border'}`}>
+                    <CheckCircle className="w-5 h-5" />
+                  </div>
+                  <span className="fw-medium text-sm">Complete</span>
+                </div>
+              </div>
+
+              {/* Form Steps */}
               <AnimatePresence mode="wait">
-                <motion.div
-                  key={currentStep}
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
-                  transition={{ duration: 0.3 }}
-                >
-                  {isReviewStep ? (
-                    renderReview()
-                  ) : (
-                    <div className="card h-100 border-0 shadow-sm bg-body-bg">
+                {currentStep <= 3 && (
+                  <motion.form
+                    key={currentStep}
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    transition={{ duration: 0.3 }}
+                    onSubmit={handleSubmit(onSubmit)}
+                    noValidate
+                  >
+                    <div className="card border-border overflow-hidden">
+                      <div className="card-header bg-body-tertiary border-b border-border">
+                        <h2 className="m-0 fw-semibold text-body-emphasis">{steps[currentStep - 1].title}</h2>
+                        <p className="m-0 mt-1 text-body-secondary text-sm">{steps[currentStep - 1].description}</p>
+                      </div>
                       <div className="card-body p-4 p-md-5">
-                        <h4 className="text-body-emphasis fw-semibold mb-4">{step.title}</h4>
-                        <form onSubmit={(e) => { e.preventDefault(); handleNext(); }}>
-                          <div className="row gy-4 gx-4">
-                            {step.fields.map((field: any, index: number) => renderField(field as any, index))}
+                        <div className="row g-3">
+                          {(currentStep === 1 ? partyFields : documentFields).map((field: typeof document.fields[0]) => (
+                            <div key={field.name} className="col-12 col-md-6">
+                              {renderField(field)}
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* reCAPTCHA v2 */}
+                        {currentStep === 3 && showRecaptchaV2 && (
+                          <div className="mt-4 p-4 bg-warning-bg-subtle border border-warning-border-subtle rounded-xl">
+                            <div className="d-flex align-items-start gap-3">
+                              <AlertCircle className="w-5 h-5 text-warning mt-0.5 flex-shrink-0" />
+                              <div className="flex-1">
+                                <h4 className="fw-semibold text-warning-emphasis mb-2">Additional Verification Required</h4>
+                                <p className="m-0 text-warning-emphasis text-sm mb-3">
+                                  Please complete the reCAPTCHA challenge below to verify you're human.
+                                </p>
+                                <div id="recaptcha-container" />
+                              </div>
+                            </div>
                           </div>
-                          <div className="mt-6 flex flex-col-reverse sm:flex-row gap-3 justify-content-end">
-                            {currentStep > 0 && (
-                              <button
-                                type="button"
-                                onClick={handleBack}
-                                className="btn btn-outline-secondary fw-semibold w-full sm:w-auto"
-                              >
-                                <ArrowLeft className="w-4 h-4 me-1" /> Back
-                              </button>
-                            )}
+                        )}
+
+                        {/* Submit / Navigation Buttons */}
+                        <div className="mt-4 pt-4 border-t border-border d-flex flex-col-reverse sm:flex-row gap-3 justify-content-end">
+                          {currentStep > 1 && (
+                            <button
+                              type="button"
+                              className="btn btn-outline-secondary btn-sm px-4 py-2 fw-semibold"
+                              onClick={() => goToStep(currentStep - 1)}
+                            >
+                              <ArrowLeft className="w-4 h-4 me-2" />
+                              Back
+                            </button>
+                          )}
+                          {currentStep < 3 && (
+                            <button
+                              type="button"
+                              className="btn btn-primary btn-sm px-4 py-2 fw-semibold ms-auto"
+                              onClick={() => goToStep(currentStep + 1)}
+                            >
+                              Next
+                              <ArrowRight className="w-4 h-4 ms-2" />
+                            </button>
+                          )}
+                          {currentStep === 3 && (
                             <button
                               type="submit"
-                              className="btn btn-primary fw-semibold w-full sm:w-auto"
+                              className="btn btn-primary btn-sm px-4 py-2 fw-semibold ms-auto"
+                              disabled={isSubmitting}
                             >
-                              {isLastStep ? (
+                              {isSubmitting ? (
                                 <>
-                                  Generate Document
-                                  <Download className="w-4 h-4 ms-1" />
+                                  <Loader2 className="w-4 h-4 me-2 animate-spin" />
+                                  Generating...
                                 </>
                               ) : (
                                 <>
-                                  Continue
-                                  <ArrowRight className="w-4 h-4 ms-1" />
+                                  Generate Document
+                                  <ArrowRight className="w-4 h-4 ms-2" />
                                 </>
                               )}
                             </button>
-                          </div>
-                        </form>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  )}
-                </motion.div>
+                  </motion.form>
+                )}
+
+                {/* Success Step */}
+                {currentStep === 4 && (
+                  <motion.div
+                    key="success"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="text-center py-8"
+                  >
+                    <div className="p-2 bg-success/10 rounded-circle d-inline-flex mb-4">
+                      <CheckCircle className="w-10 h-10 text-success" />
+                    </div>
+                    <h2 className="text-body-emphasis text-3xl fw-bold mb-3">Document Generated!</h2>
+                    <p className="text-body-secondary text-lg mb-5 max-w-xl mx-auto">
+                      Your <strong>{document.name}</strong> has been created and is ready to download.
+                    </p>
+                    <div className="d-flex flex-col sm:flex-row gap-3 justify-content-center mb-5">
+                      <button
+                        onClick={handleDownload}
+                        className="btn btn-lg btn-primary text-white fw-semibold px-6 py-3 shimmer-hover"
+                      >
+                        <Download className="w-5 h-5 me-2" />
+                        Download PDF
+                      </button>
+                      <a
+                        href="/documents"
+                        className="btn btn-lg btn-outline-secondary fw-semibold px-6 py-3"
+                      >
+                        Create Another Document
+                      </a>
+                    </div>
+                    <div className="d-flex align-items-center justify-content-center gap-3 text-body-secondary text-sm">
+                      <Shield className="w-5 h-5 text-success" />
+                      <span>Kenyan law compliant</span>
+                      <span className="mx-2">·</span>
+                      <span>Lawyer reviewed</span>
+                      <span className="mx-2">·</span>
+                      <span>Instant PDF</span>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Error State */}
+                {submitError && currentStep <= 3 && (
+                  <motion.div
+                    key="error"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-4 p-4 bg-danger-bg-subtle border border-danger-border-subtle rounded-xl text-center"
+                  >
+                    <AlertCircle className="w-6 h-6 text-danger mx-auto mb-2" />
+                    <p className="m-0 text-danger-emphasis fw-medium">{submitError}</p>
+                    <p className="m-0 mt-2 text-danger text-sm">
+                      <a href={WHATSAPP_HREF} target="_blank" rel="noopener noreferrer" className="text-primary fw-semibold underline">
+                        Contact support on WhatsApp
+                      </a>
+                    </p>
+                  </motion.div>
+                )}
               </AnimatePresence>
             </div>
           </div>
         </div>
       </main>
 
-      {/* reCAPTCHA v3 script */}
+      {/* reCAPTCHA v2 Script */}
       <script
+        src={`https://www.google.com/recaptcha/api.js?render=${process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY}`}
         async
-        src={`https://www.google.com/recaptcha/api.js?render=${RECAPTCHA_SITE_KEY}`}
+        defer
       />
-      <script
-        async
-        src="https://www.google.com/recaptcha/api.js?onload=onloadCallback&render=explicit"
-      />
+      {showRecaptchaV2 && (
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if (window.grecaptcha && !window.recaptchaV2Rendered) {
+                window.recaptchaV2WidgetId = window.grecaptcha.render('recaptcha-container', {
+                  sitekey: '${process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY}',
+                  callback: function(token) {
+                    window.recaptchaV2Callback(token);
+                  },
+                  'expired-callback': function() {
+                    window.recaptchaV2Expired();
+                  },
+                  size: 'normal'
+                });
+                window.recaptchaV2Rendered = true;
+              }
+            `,
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -3,413 +3,388 @@ import { put } from '@vercel/blob';
 import { createTransport } from 'nodemailer';
 import { jsPDF } from 'jspdf';
 
-const RECAPTCHA_SECRET_KEY: string = process.env.RECAPTCHA_SECRET_KEY || '';
-const BLOB_READ_WRITE_TOKEN: string = process.env.BLOB_READ_WRITE_TOKEN || '';
-const SMTP_HOST: string = process.env.SMTP_HOST || '';
-const SMTP_PORT: string = process.env.SMTP_PORT || '587';
-const SMTP_USER: string = process.env.SMTP_USER || '';
-const SMTP_PASS: string = process.env.SMTP_PASS || '';
-const SMTP_FROM: string = process.env.SMTP_FROM || 'noreply@ezekieldocs.com';
-const NEXT_PUBLIC_SITE_URL: string = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+const RECAPTCHA_SECRET_KEY: string = process.env.RECAPTCHA_SECRET_KEY ?? '';
+const BLOB_READ_WRITE_TOKEN: string = process.env.BLOB_READ_WRITE_TOKEN ?? '';
+const SMTP_HOST: string = process.env.SMTP_HOST ?? '';
+const SMTP_PORT: number = parseInt(process.env.SMTP_PORT ?? '587', 10);
+const SMTP_USER: string = process.env.SMTP_USER ?? '';
+const SMTP_PASS: string = process.env.SMTP_PASS ?? '';
+const SMTP_FROM: string = process.env.SMTP_FROM ?? '';
 
-interface GenerateRequest {
-  documentType: string;
-  formData: Record<string, any>;
-  recaptchaToken?: string;
-}
-
-async function verifyRecaptcha(token: string): Promise<{ success: boolean; score: number }> {
-  const secretKey = RECAPTCHA_SECRET_KEY;
-  if (!secretKey) {
-    console.warn('RECAPTCHA_SECRET_KEY not configured, skipping verification');
-    return { success: true, score: 1 };
-  }
-
+async function verifyRecaptcha(token: string): Promise<{ success: boolean; score?: number }> {
   try {
     const response = await fetch(
-      `https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${token}`,
+      `https://www.google.com/recaptcha/api/siteverify?secret=${RECAPTCHA_SECRET_KEY}&response=${token}`,
       { method: 'POST' }
     );
-    const data = await response.json();
-    return { success: data.success, score: data.score || 0 };
-  } catch (error) {
-    console.error('reCAPTCHA verification error:', error);
-    return { success: false, score: 0 };
+    return await response.json();
+  } catch {
+    return { success: false };
   }
 }
 
-function generateDocumentPDF(documentType: string, data: Record<string, any>): Buffer {
+function generatePDF(documentType: string, formData: Record<string, any>): Buffer {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 20;
   let y = 20;
 
-  const addText = (text: string, options: { size?: number; bold?: boolean; color?: [number, number, number]; align?: 'left' | 'center' | 'right' } = {}) => {
-    const { size = 11, bold = false, color = [0, 0, 0], align = 'left' } = options;
-    doc.setFontSize(size);
-    doc.setFont('helvetica', bold ? 'bold' : 'normal');
-    doc.setTextColor(...color);
-    const lines = doc.splitTextToSize(text, pageWidth - 2 * margin);
-    doc.text(lines, margin, y, { align });
-    y += lines.length * (size * 0.5) + 2;
+  // Helper functions
+  const addText = (text: string, x: number, yPos: number, options: { fontSize?: number; fontStyle?: string; maxWidth?: number } = {}) => {
+    doc.setFontSize(options.fontSize || 10);
+    doc.setFont('helvetica', options.fontStyle || 'normal');
+    const maxWidth = options.maxWidth || pageWidth - margin * 2;
+    const lines = doc.splitTextToSize(text, maxWidth);
+    doc.text(lines, x, yPos);
+    return yPos + lines.length * (options.fontSize || 10) * 0.5;
   };
 
-  const addSection = (title: string) => {
-    if (y > 260) { doc.addPage(); y = 20; }
-    addText(title, { size: 14, bold: true, color: [234, 88, 12] });
-    y += 4;
+  const addLabelValue = (label: string, value: string, yPos: number) => {
+    y = addText(`${label}:`, margin, yPos, { fontSize: 10, fontStyle: 'bold' });
+    y = addText(value || 'N/A', margin, yPos, { fontSize: 10, maxWidth: pageWidth - margin * 2 - 50 });
+    return y + 5;
   };
 
-  const addField = (label: string, value: string) => {
-    if (y > 270) { doc.addPage(); y = 20; }
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(60, 60, 60);
-    const labelLines = doc.splitTextToSize(`${label}:`, pageWidth - 2 * margin - 80);
-    doc.text(labelLines, margin, y);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(0, 0, 0);
-    const valueLines = doc.splitTextToSize(value, pageWidth - 2 * margin - 80);
-    doc.text(valueLines, margin + 80, y);
-    y += Math.max(labelLines.length, valueLines.length) * 5.5 + 3;
+  const checkPageBreak = (neededSpace: number) => {
+    if (y + neededSpace > doc.internal.pageSize.getHeight() - 20) {
+      doc.addPage();
+      y = 20;
+    }
   };
 
   // Title
   const titles: Record<string, string> = {
-    'nda': 'NON-DISCLOSURE AGREEMENT',
-    'service-agreement': 'SERVICE AGREEMENT',
-    'employment-contract': 'EMPLOYMENT CONTRACT',
-    'freelancer-contract': 'FREELANCER CONTRACT',
-    'sale-agreement': 'SALE AGREEMENT',
-    'tenancy-agreement': 'TENANCY AGREEMENT',
+    'nda': 'Non-Disclosure Agreement',
+    'service-agreement': 'Service Agreement',
+    'employment-contract': 'Employment Contract',
+    'freelancer-contract': 'Freelancer Contract',
+    'sale-agreement': 'Sale Agreement',
+    'tenancy-agreement': 'Tenancy Agreement',
+    'loan-agreement': 'Loan Agreement',
+    'partnership-agreement': 'Partnership Agreement',
+    'consultancy-agreement': 'Consultancy Agreement',
+    'power-of-attorney': 'Power of Attorney',
+    'memorandum-of-understanding': 'Memorandum of Understanding',
+    'shareholders-agreement': 'Shareholders Agreement',
+    'contractor-agreement': 'Independent Contractor Agreement',
   };
 
-  addText(titles[documentType] || 'LEGAL AGREEMENT', { size: 20, bold: true, align: 'center', color: [234, 88, 12] });
+  doc.setFontSize(20);
+  doc.setFont('helvetica', 'bold');
+  doc.text(titles[documentType] || 'Legal Document', pageWidth / 2, y, { align: 'center' });
+  y += 15;
+
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100);
+  doc.text(`Generated on ${new Date().toLocaleDateString('en-KE')} | Ezekiel Docs`, pageWidth / 2, y, { align: 'center' });
   y += 10;
-  addText('Generated by Ezekiel Docs', { size: 10, align: 'center', color: [100, 100, 100] });
-  addText(new Date().toLocaleDateString('en-KE'), { size: 10, align: 'center', color: [100, 100, 100] });
+
+  doc.setDrawColor(200);
+  doc.line(margin, y, pageWidth - margin, y);
   y += 10;
 
   // Document-specific content
   switch (documentType) {
-    case 'nda': {
-      addSection('PARTIES');
-      addField('Disclosing Party', data.disclosingPartyName || '');
-      addField('Disclosing Party Address', data.disclosingPartyAddress || '');
-      addField('Receiving Party', data.receivingPartyName || '');
-      addField('Receiving Party Address', data.receivingPartyAddress || '');
-
-      addSection('TERMS');
-      addField('Purpose of Disclosure', data.purpose || '');
-      addField('Confidentiality Duration', `${data.duration || 3} years`);
-      addField('Governing Law', data.jurisdiction === 'Other' ? data.jurisdictionOther || 'Kenya' : 'Kenya');
-
-      addSection('STANDARD CLAUSES');
-      addText('1. Definition of Confidential Information', { bold: true });
-      addText('"Confidential Information" means all non-public information, whether written, oral, electronic, or in any other form, disclosed by the Disclosing Party to the Receiving Party, including but not limited to trade secrets, business plans, financial data, customer lists, technical data, and know-how.');
-      
-      addText('2. Obligations of Receiving Party', { bold: true });
-      addText('The Receiving Party shall: (a) hold all Confidential Information in strict confidence; (b) not disclose Confidential Information to any third party without prior written consent; (c) use Confidential Information solely for the Purpose stated above; (d) limit access to Confidential Information to employees or agents who have a need to know and are bound by confidentiality obligations no less protective than those herein.');
-      
-      addText('3. Exceptions', { bold: true });
-      addText('Confidential Information does not include information that: (a) is or becomes publicly known through no fault of the Receiving Party; (b) was known to the Receiving Party prior to disclosure; (c) is independently developed by the Receiving Party; (d) is rightfully received from a third party without restriction.');
-      
-      addText('4. Term and Termination', { bold: true });
-      addText(`This Agreement shall remain in effect for ${data.duration || 3} years from the date of execution. Upon termination, the Receiving Party shall return or destroy all Confidential Information.`);
-      
-      addText('5. Governing Law', { bold: true });
-      addText(`This Agreement shall be governed by and construed in accordance with the laws of ${data.jurisdiction === 'Other' ? data.jurisdictionOther || 'Kenya' : 'Kenya'}.`);
+    case 'nda':
+      y = addLabelValue('Disclosing Party', formData.party1Name || '', y);
+      y = addLabelValue('Disclosing Party Address', formData.party1Address || '', y);
+      y = addLabelValue('Receiving Party', formData.party2Name || '', y);
+      y = addLabelValue('Receiving Party Address', formData.party2Address || '', y);
+      y = addLabelValue('Purpose of Disclosure', formData.purpose || '', y);
+      y = addLabelValue('Confidentiality Duration', `${formData.duration || 24} months`, y);
+      y = addLabelValue('Governing Law', formData.governingLaw || 'Kenya', y);
       break;
-    }
 
-    case 'service-agreement': {
-      addSection('PARTIES');
-      addField('Service Provider', data.providerName || '');
-      addField('Provider Address', data.providerAddress || '');
-      addField('Client', data.clientName || '');
-      addField('Client Address', data.clientAddress || '');
-
-      addSection('SCOPE OF SERVICES');
-      addField('Services Description', data.services || '');
-      addField('Deliverables', data.deliverables || '');
-      addField('Timeline', data.timeline || '');
-      addField('Start Date', data.startDate || '');
-
-      addSection('PAYMENT TERMS');
-      addField('Fee Structure', data.feeType || '');
-      addField('Total Amount', `KSh ${Number(data.totalAmount || 0).toLocaleString()}`);
-      addField('Payment Schedule', data.paymentSchedule || '');
-      addField('Expenses', data.expenses || 'None specified');
-
-      addSection('TERMS & CONDITIONS');
-      addField('Termination Notice', `${data.terminationNotice || 14} days`);
-      addField('Confidentiality Clause', data.confidentiality ? 'Included' : 'Not Included');
-      addField('IP Ownership', data.ipOwnership || '');
-
-      addSection('STANDARD PROVISIONS');
-      addText('The Provider shall perform the Services in a professional and workmanlike manner, consistent with industry standards. The Client shall provide timely access to information and resources necessary for the Provider to perform the Services. Either party may terminate this Agreement with written notice as specified above. This Agreement shall be governed by the laws of Kenya.');
+    case 'service-agreement':
+      y = addLabelValue('Service Provider', formData.providerName || '', y);
+      y = addLabelValue('Provider Address', formData.providerAddress || '', y);
+      y = addLabelValue('Client', formData.clientName || '', y);
+      y = addLabelValue('Client Address', formData.clientAddress || '', y);
+      y = addLabelValue('Services Description', formData.services || '', y);
+      y = addLabelValue('Fees', `KSh ${formData.fees || 0}`, y);
+      y = addLabelValue('Payment Terms', formData.paymentTerms || '', y);
+      y = addLabelValue('Start Date', formData.startDate || '', y);
+      y = addLabelValue('End Date', formData.endDate || 'Ongoing', y);
+      y = addLabelValue('Termination Notice', `${formData.terminationNotice || 30} days`, y);
       break;
-    }
 
-    case 'employment-contract': {
-      addSection('EMPLOYER');
-      addField('Company Name', data.companyName || '');
-      addField('Company Address', data.companyAddress || '');
-      addField('Registration Number', data.companyRegNo || '');
-      addField('Authorized Representative', data.representativeName || '');
-
-      addSection('EMPLOYEE');
-      addField('Full Name', data.employeeName || '');
-      addField('ID / Passport', data.employeeId || '');
-      addField('Address', data.employeeAddress || '');
-      addField('Phone', data.employeePhone || '');
-      addField('Email', data.employeeEmail || '');
-
-      addSection('EMPLOYMENT TERMS');
-      addField('Position', data.position || '');
-      addField('Department', data.department || 'Not specified');
-      addField('Start Date', data.startDate || '');
-      addField('Contract Type', data.contractType || '');
-      if (data.contractType === 'Fixed Term') addField('End Date', data.endDate || '');
-      addField('Probation Period', `${data.probationPeriod || 3} months`);
-
-      addSection('COMPENSATION & BENEFITS');
-      addField('Basic Monthly Salary', `KSh ${Number(data.basicSalary || 0).toLocaleString()}`);
-      addField('Allowances', data.allowances || 'As per company policy');
-      addField('Working Hours/Week', `${data.workingHours || 45} hours`);
-      addField('Annual Leave', `${data.leaveDays || 21} days`);
-      addField('Medical Cover', data.medicalCover ? 'Provided' : 'Not provided');
-      addField('NSSF Contribution', data.nssfContribution ? 'Yes' : 'No');
-      addField('NHIF Contribution', data.nhifContribution ? 'Yes' : 'No');
-
-      addSection('STATUTORY COMPLIANCE');
-      addText('This contract complies with the Employment Act, 2007 (Kenya), the Labour Relations Act, 2007, the Work Injury Benefits Act, 2007, and the Occupational Safety and Health Act, 2007. The Employee is entitled to all statutory benefits including but not limited to annual leave, sick leave, maternity/paternity leave, and protection against unfair termination.');
+    case 'employment-contract':
+      y = addLabelValue('Employer', formData.employerName || '', y);
+      y = addLabelValue('Employer Address', formData.employerAddress || '', y);
+      y = addLabelValue('Employee', formData.employeeName || '', y);
+      y = addLabelValue('Employee Address', formData.employeeAddress || '', y);
+      y = addLabelValue('Employee ID/Passport', formData.employeeId || '', y);
+      y = addLabelValue('Position', formData.position || '', y);
+      y = addLabelValue('Department', formData.department || 'N/A', y);
+      y = addLabelValue('Monthly Salary', `KSh ${formData.salary || 0}`, y);
+      y = addLabelValue('Pay Frequency', formData.payFrequency || '', y);
+      y = addLabelValue('Start Date', formData.startDate || '', y);
+      y = addLabelValue('Contract Type', formData.contractType || '', y);
+      y = addLabelValue('Contract Duration', formData.contractDuration ? `${formData.contractDuration} months` : 'Permanent', y);
+      y = addLabelValue('Working Hours/Week', formData.workingHours || 40, y);
+      y = addLabelValue('Annual Leave Days', formData.leaveDays || 21, y);
+      y = addLabelValue('Notice Period', `${formData.noticePeriod || 30} days`, y);
+      y = addLabelValue('Benefits', formData.benefits || 'As per company policy', y);
       break;
-    }
 
-    case 'freelancer-contract': {
-      addSection('PARTIES');
-      addField('Client', data.clientName || '');
-      addField('Client Address', data.clientAddress || '');
-      addField('Freelancer', data.freelancerName || '');
-      addField('Freelancer ID', data.freelancerId || '');
-      addField('Freelancer Address', data.freelancerAddress || '');
-
-      addSection('PROJECT SCOPE');
-      addField('Project Title', data.projectTitle || '');
-      addField('Scope of Work', data.scopeDescription || '');
-      addField('Deliverables', data.deliverables || '');
-      addField('Revisions Included', `${data.revisions || 2}`);
-
-      addSection('PAYMENT TERMS');
-      addField('Fee Type', data.feeType || '');
-      addField('Total Fee', `KSh ${Number(data.totalFee || 0).toLocaleString()}`);
-      addField('Payment Terms', data.paymentTerms || '');
-
-      addSection('TERMS & IP');
-      addField('IP Ownership', data.ipOwnership || '');
-      addField('Confidentiality', data.confidentiality ? 'Included' : 'Not Included');
-      addField('Termination Notice', `${data.termination || 7} days`);
-
-      addSection('INDEPENDENT CONTRACTOR STATUS');
-      addText('The Freelancer is an independent contractor and not an employee, partner, or agent of the Client. The Freelancer is solely responsible for all taxes, insurance, and statutory contributions. The Freelancer shall have control over the manner and means of performing the Services.');
+    case 'freelancer-contract':
+      y = addLabelValue('Client', formData.clientName || '', y);
+      y = addLabelValue('Client Address', formData.clientAddress || '', y);
+      y = addLabelValue('Freelancer', formData.freelancerName || '', y);
+      y = addLabelValue('Freelancer Address', formData.freelancerAddress || '', y);
+      y = addLabelValue('Freelancer PIN', formData.freelancerPin || '', y);
+      y = addLabelValue('Project Description', formData.projectDescription || '', y);
+      y = addLabelValue('Deliverables', formData.deliverables || '', y);
+      y = addLabelValue('Total Fee', `KSh ${formData.totalFee || 0}`, y);
+      y = addLabelValue('Payment Schedule', formData.paymentSchedule || '', y);
+      y = addLabelValue('Start Date', formData.startDate || '', y);
+      y = addLabelValue('Deadline', formData.deadline || '', y);
+      y = addLabelValue('Revisions Included', formData.revisions || 2, y);
+      y = addLabelValue('IP Ownership', formData.ipOwnership || '', y);
+      y = addLabelValue('Confidentiality', formData.confidentiality ? 'Yes' : 'No', y);
       break;
-    }
 
-    case 'sale-agreement': {
-      addSection('PARTIES');
-      addField('Seller', data.sellerName || '');
-      addField('Seller ID', data.sellerId || '');
-      addField('Seller Address', data.sellerAddress || '');
-      addField('Buyer', data.buyerName || '');
-      addField('Buyer ID', data.buyerId || '');
-      addField('Buyer Address', data.buyerAddress || '');
-
-      addSection('PROPERTY / GOODS');
-      addField('Type', data.itemType || '');
-      addField('Description', data.description || '');
-      addField('Location', data.location || '');
-      addField('Title Deed / Reg. No.', data.titleDeed || '');
-
-      addSection('PRICE & PAYMENT');
-      addField('Purchase Price', `KSh ${Number(data.purchasePrice || 0).toLocaleString()}`);
-      addField('Deposit', `KSh ${Number(data.deposit || 0).toLocaleString()}`);
-      addField('Balance Due Date', data.balanceDue || '');
-      addField('Payment Method', data.paymentMethod || '');
-
-      addSection('TRANSFER & WARRANTIES');
-      addText('The Seller warrants that they have good and marketable title to the Property/Goods, free from encumbrances (unless disclosed). The Seller shall transfer possession and title to the Buyer upon receipt of full payment. Risk passes to the Buyer upon delivery/transfer. This Agreement shall be governed by the laws of Kenya.');
+    case 'sale-agreement':
+      y = addLabelValue('Seller', formData.sellerName || '', y);
+      y = addLabelValue('Seller Address', formData.sellerAddress || '', y);
+      y = addLabelValue('Buyer', formData.buyerName || '', y);
+      y = addLabelValue('Buyer Address', formData.buyerAddress || '', y);
+      y = addLabelValue('Item Description', formData.itemDescription || '', y);
+      y = addLabelValue('Quantity', formData.quantity || 1, y);
+      y = addLabelValue('Unit Price', `KSh ${formData.unitPrice || 0}`, y);
+      y = addLabelValue('Total Price', `KSh ${formData.totalPrice || 0}`, y);
+      y = addLabelValue('Payment Method', formData.paymentMethod || '', y);
+      y = addLabelValue('Payment Terms', formData.paymentTerms || '', y);
+      y = addLabelValue('Delivery Date', formData.deliveryDate || '', y);
+      y = addLabelValue('Delivery Location', formData.deliveryLocation || '', y);
+      y = addLabelValue('Warranty', `${formData.warranty || 0} months`, y);
+      y = addLabelValue('Risk Transfers On', formData.riskTransfer || '', y);
       break;
-    }
 
-    case 'tenancy-agreement': {
-      addSection('PARTIES');
-      addField('Landlord', data.landlordName || '');
-      addField('Landlord ID', data.landlordId || '');
-      addField('Landlord Address', data.landlordAddress || '');
-      addField('Tenant', data.tenantName || '');
-      addField('Tenant ID', data.tenantId || '');
-      addField('Tenant Current Address', data.tenantAddress || '');
-
-      addSection('PROPERTY');
-      addField('Property Address', data.propertyAddress || '');
-      addField('Property Type', data.propertyType || '');
-      addField('Description', data.description || '');
-      addField('Furnished', data.furnished ? 'Yes' : 'No');
-
-      addSection('TENANCY TERMS');
-      addField('Start Date', data.startDate || '');
-      addField('Duration', `${data.duration || 12} months`);
-      addField('Monthly Rent', `KSh ${Number(data.rentAmount || 0).toLocaleString()}`);
-      addField('Security Deposit', `${data.deposit || 1} month(s) rent`);
-      addField('Rent Due Date', `Day ${data.rentDueDate || 1} of each month`);
-      addField('Utilities Included', data.utilities || 'Tenant responsible for all utilities');
-
-      addSection('STANDARD CLAUSES');
-      addText('The Tenant shall: (a) pay rent on time; (b) use the property for residential/commercial purposes only; (c) keep the property in good condition; (d) not sublet without written consent. The Landlord shall: (a) maintain structural repairs; (b) ensure quiet enjoyment; (c) provide receipts for all payments. Either party may terminate with one month\'s written notice after the initial term. Governed by the Land Act, 2012 and the Landlord and Tenant (Shops, Hotels and Catering Establishments) Act, Cap 301 (Kenya).');
+    case 'tenancy-agreement':
+      y = addLabelValue('Landlord', formData.landlordName || '', y);
+      y = addLabelValue('Landlord Address', formData.landlordAddress || '', y);
+      y = addLabelValue('Tenant', formData.tenantName || '', y);
+      y = addLabelValue('Tenant Address', formData.tenantAddress || '', y);
+      y = addLabelValue('Tenant ID/Passport', formData.tenantId || '', y);
+      y = addLabelValue('Property Address', formData.propertyAddress || '', y);
+      y = addLabelValue('Property Type', formData.propertyType || '', y);
+      y = addLabelValue('Monthly Rent', `KSh ${formData.rentAmount || 0}`, y);
+      y = addLabelValue('Security Deposit', `KSh ${formData.deposit || 0}`, y);
+      y = addLabelValue('Rent Due Day', formData.rentDueDay || 1, y);
+      y = addLabelValue('Tenancy Start', formData.startDate || '', y);
+      y = addLabelValue('Tenancy End', formData.endDate || '', y);
+      y = addLabelValue('Renewal Notice', `${formData.renewalNotice || 90} days`, y);
+      y = addLabelValue('Utilities Included', formData.utilitiesIncluded || 'As agreed', y);
+      y = addLabelValue('Maintenance', formData.maintenanceResponsibility || '', y);
+      y = addLabelValue('Subletting', formData.sublettingAllowed ? 'Allowed' : 'Not Allowed', y);
+      y = addLabelValue('Pets', formData.petsAllowed ? 'Allowed' : 'Not Allowed', y);
       break;
-    }
 
-    default: {
-      // Generic template
-      Object.entries(data).forEach(([key, value]) => {
-        if (value !== undefined && value !== '' && value !== false) {
-          addField(key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()), String(value));
+    case 'loan-agreement':
+      y = addLabelValue('Lender', formData.lenderName || '', y);
+      y = addLabelValue('Lender Address', formData.lenderAddress || '', y);
+      y = addLabelValue('Borrower', formData.borrowerName || '', y);
+      y = addLabelValue('Borrower Address', formData.borrowerAddress || '', y);
+      y = addLabelValue('Borrower ID/Passport', formData.borrowerId || '', y);
+      y = addLabelValue('Principal Amount', `KSh ${formData.principalAmount || 0}`, y);
+      y = addLabelValue('Interest Rate', `${formData.interestRate || 0}% per annum`, y);
+      y = addLabelValue('Loan Term', `${formData.loanTerm || 0} months`, y);
+      y = addLabelValue('Repayment Frequency', formData.repaymentFrequency || '', y);
+      y = addLabelValue('Start Date', formData.startDate || '', y);
+      y = addLabelValue('Purpose', formData.purpose || 'General', y);
+      y = addLabelValue('Collateral', formData.collateral || 'Unsecured', y);
+      y = addLabelValue('Late Fee', `KSh ${formData.lateFee || 0}`, y);
+      y = addLabelValue('Prepayment Allowed', formData.prepaymentAllowed ? 'Yes' : 'No', y);
+      break;
+
+    case 'partnership-agreement':
+      y = addLabelValue('Partner 1', formData.partner1Name || '', y);
+      y = addLabelValue('Partner 1 Address', formData.partner1Address || '', y);
+      y = addLabelValue('Partner 2', formData.partner2Name || '', y);
+      y = addLabelValue('Partner 2 Address', formData.partner2Address || '', y);
+      y = addLabelValue('Business Name', formData.businessName || '', y);
+      y = addLabelValue('Business Address', formData.businessAddress || '', y);
+      y = addLabelValue('Business Purpose', formData.businessPurpose || '', y);
+      y = addLabelValue('Partner 1 Capital', `KSh ${formData.capitalContribution1 || 0}`, y);
+      y = addLabelValue('Partner 2 Capital', `KSh ${formData.capitalContribution2 || 0}`, y);
+      y = addLabelValue('Partner 1 Profit Share', `${formData.profitSharing1 || 0}%`, y);
+      y = addLabelValue('Partner 2 Profit Share', `${formData.profitSharing2 || 0}%`, y);
+      y = addLabelValue('Partner 1 Role', formData.managementRole1 || '', y);
+      y = addLabelValue('Partner 2 Role', formData.managementRole2 || '', y);
+      y = addLabelValue('Decision Making', formData.decisionMaking || '', y);
+      y = addLabelValue('Dispute Resolution', formData.disputeResolution || '', y);
+      y = addLabelValue('Withdrawal Notice', `${formData.withdrawalNotice || 90} days`, y);
+      break;
+
+    case 'consultancy-agreement':
+      y = addLabelValue('Client', formData.clientName || '', y);
+      y = addLabelValue('Client Address', formData.clientAddress || '', y);
+      y = addLabelValue('Consultant', formData.consultantName || '', y);
+      y = addLabelValue('Consultant Address', formData.consultantAddress || '', y);
+      y = addLabelValue('Consultant PIN', formData.consultantPin || '', y);
+      y = addLabelValue('Scope of Work', formData.scopeOfWork || '', y);
+      y = addLabelValue('Deliverables', formData.deliverables || '', y);
+      y = addLabelValue('Fees', `KSh ${formData.fees || 0}`, y);
+      y = addLabelValue('Payment Terms', formData.paymentTerms || '', y);
+      y = addLabelValue('Start Date', formData.startDate || '', y);
+      y = addLabelValue('End Date', formData.endDate || 'Ongoing', y);
+      y = addLabelValue('Termination Notice', `${formData.terminationNotice || 30} days`, y);
+      y = addLabelValue('Confidentiality', formData.confidentiality ? 'Yes' : 'No', y);
+      y = addLabelValue('IP Ownership', formData.ipOwnership || '', y);
+      break;
+
+    case 'power-of-attorney':
+      y = addLabelValue('Donor (You)', formData.donorName || '', y);
+      y = addLabelValue('Donor Address', formData.donorAddress || '', y);
+      y = addLabelValue('Donor ID/Passport', formData.donorId || '', y);
+      y = addLabelValue('Attorney', formData.attorneyName || '', y);
+      y = addLabelValue('Attorney Address', formData.attorneyAddress || '', y);
+      y = addLabelValue('Attorney ID/Passport', formData.attorneyId || '', y);
+      y = addLabelValue('Powers Granted', formData.powersGranted || '', y);
+      y = addLabelValue('Effective Date', formData.startDate || '', y);
+      y = addLabelValue('Expiry Date', formData.endDate || 'Indefinite', y);
+      y = addLabelValue('Revocable', formData.revocable ? 'Yes' : 'No', y);
+      y = addLabelValue('Specific Transactions Only', formData.specificTransactions ? 'Yes' : 'No', y);
+      break;
+
+    case 'memorandum-of-understanding':
+      y = addLabelValue('Party 1', formData.party1Name || '', y);
+      y = addLabelValue('Party 1 Address', formData.party1Address || '', y);
+      y = addLabelValue('Party 2', formData.party2Name || '', y);
+      y = addLabelValue('Party 2 Address', formData.party2Address || '', y);
+      y = addLabelValue('Purpose', formData.purpose || '', y);
+      y = addLabelValue('Objectives', formData.objectives || '', y);
+      y = addLabelValue('Party 1 Responsibilities', formData.responsibilities1 || '', y);
+      y = addLabelValue('Party 2 Responsibilities', formData.responsibilities2 || '', y);
+      y = addLabelValue('Duration', `${formData.duration || 12} months`, y);
+      y = addLabelValue('Confidentiality', formData.confidentiality ? 'Yes' : 'No', y);
+      y = addLabelValue('Legally Binding', formData.binding ? 'Yes' : 'No', y);
+      y = addLabelValue('Termination Notice', `${formData.terminationNotice || 30} days`, y);
+      break;
+
+    case 'shareholders-agreement':
+      y = addLabelValue('Company', formData.companyName || '', y);
+      y = addLabelValue('Company Address', formData.companyAddress || '', y);
+      y = addLabelValue('Shareholder 1', `${formData.shareholder1Name || ''} (${formData.shareholder1Shares || 0}%)`, y);
+      y = addLabelValue('Shareholder 2', `${formData.shareholder2Name || ''} (${formData.shareholder2Shares || 0}%)`, y);
+      if (formData.shareholder3Name) {
+        y = addLabelValue('Shareholder 3', `${formData.shareholder3Name} (${formData.shareholder3Shares || 0}%)`, y);
+      }
+      y = addLabelValue('Board Composition', formData.boardComposition || '', y);
+      y = addLabelValue('Voting Thresholds', formData.votingThresholds || '', y);
+      y = addLabelValue('Dividend Policy', formData.dividendPolicy || 'As per board', y);
+      y = addLabelValue('Transfer Restrictions', formData.shareTransferRestrictions || '', y);
+      y = addLabelValue('Drag-Along Rights', formData.dragAlong ? 'Yes' : 'No', y);
+      y = addLabelValue('Tag-Along Rights', formData.tagAlong ? 'Yes' : 'No', y);
+      y = addLabelValue('Dispute Resolution', formData.disputeResolution || '', y);
+      break;
+
+    case 'contractor-agreement':
+      y = addLabelValue('Company', formData.companyName || '', y);
+      y = addLabelValue('Company Address', formData.companyAddress || '', y);
+      y = addLabelValue('Contractor', formData.contractorName || '', y);
+      y = addLabelValue('Contractor Address', formData.contractorAddress || '', y);
+      y = addLabelValue('Contractor PIN', formData.contractorPin || '', y);
+      y = addLabelValue('Services', formData.services || '', y);
+      y = addLabelValue('Compensation', `KSh ${formData.compensation || 0}`, y);
+      y = addLabelValue('Payment Schedule', formData.paymentSchedule || '', y);
+      y = addLabelValue('Start Date', formData.startDate || '', y);
+      y = addLabelValue('End Date', formData.endDate || 'Ongoing', y);
+      y = addLabelValue('Termination Notice', `${formData.terminationNotice || 14} days`, y);
+      y = addLabelValue('Expenses Reimbursable', formData.expensesReimbursable ? 'Yes' : 'No', y);
+      y = addLabelValue('Equipment Provided', formData.equipmentProvided ? 'Yes' : 'No', y);
+      y = addLabelValue('Non-Compete', formData.nonCompete ? 'Yes' : 'No', y);
+      y = addLabelValue('Confidentiality', formData.confidentiality ? 'Yes' : 'No', y);
+      break;
+
+    default:
+      Object.entries(formData).forEach(([key, value]) => {
+        if (value !== '' && value !== null && value !== undefined) {
+          y = addLabelValue(key, String(value), y);
         }
       });
-    }
   }
 
-  // Signature blocks
-  y += 10;
-  if (y > 200) { doc.addPage(); y = 20; }
-  addSection('SIGNATURES');
-  addText('IN WITNESS WHEREOF, the parties have executed this Agreement as of the date first written above.', { size: 10 });
-  y += 10;
-
-  const parties: Record<string, string[]> = {
-    'nda': ['Disclosing Party', 'Receiving Party'],
-    'service-agreement': ['Service Provider', 'Client'],
-    'employment-contract': ['Employer', 'Employee'],
-    'freelancer-contract': ['Client', 'Freelancer'],
-    'sale-agreement': ['Seller', 'Buyer'],
-    'tenancy-agreement': ['Landlord', 'Tenant'],
-  };
-
-  const signParties = parties[documentType] || ['Party A', 'Party B'];
-  
-  signParties.forEach(party => {
-    if (y > 240) { doc.addPage(); y = 20; }
-    addText(`_________________________________`, { bold: true });
-    addText(`${party}`, { bold: true });
-    addText('Name: ___________________________', { size: 10 });
-    addText('Date: ___________________________', { size: 10 });
-    addText('Signature: ______________________', { size: 10 });
-    y += 10;
-  });
-
   // Footer
-  y += 10;
+  y = Math.max(y + 20, doc.internal.pageSize.getHeight() - 40);
   doc.setFontSize(8);
-  doc.setTextColor(150, 150, 150);
-  doc.text('This document was generated by Ezekiel Docs (https://ezekieldocs.com)', pageWidth / 2, doc.internal.pageSize.getHeight() - 10, { align: 'center' });
-  doc.text('This template is for general use only and does not constitute legal advice. Consult a qualified advocate for specific legal matters.', pageWidth / 2, doc.internal.pageSize.getHeight() - 5, { align: 'center' });
+  doc.setTextColor(150);
+  doc.text('This document was generated by Ezekiel Docs (ezekieldocs.com)', pageWidth / 2, y, { align: 'center' });
+  doc.text('Review by a qualified Kenyan advocate is recommended before signing.', pageWidth / 2, y + 5, { align: 'center' });
 
   return Buffer.from(doc.output('arraybuffer'));
 }
 
-async function sendConfirmationEmail(email: string, documentName: string, downloadUrl: string) {
-  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
-    console.warn('SMTP not configured, skipping email');
-    return;
-  }
-
-  const smtpHost = SMTP_HOST;
-  const smtpPort = Number(SMTP_PORT) || 587;
-  const smtpUser = SMTP_USER;
-  const smtpPass = SMTP_PASS;
+async function sendConfirmationEmail(email: string, downloadUrl: string, documentType: string) {
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return;
 
   try {
     const transporter = createTransport({
-      host: smtpHost,
-      port: smtpPort,
-      secure: smtpPort === 465,
-      auth: { user: smtpUser, pass: smtpPass },
+      host: SMTP_HOST,
+      port: SMTP_PORT,
+      secure: SMTP_PORT === 465,
+      auth: { user: SMTP_USER, pass: SMTP_PASS },
     });
 
     await transporter.sendMail({
       from: SMTP_FROM,
       to: email,
-      subject: `Your ${documentName} is Ready - Ezekiel Docs`,
+      subject: `Your ${documentType} is ready - Ezekiel Docs`,
       html: `
         <div style="font-family: 'Inter', sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <div style="background: #ea580c; color: white; padding: 20px; border-radius: 8px 8px 0 0;">
-            <h1 style="margin: 0; font-size: 24px;">Ezekiel Docs</h1>
-            <p style="margin: 5px 0 0; opacity: 0.9;">Your legal documents, done right.</p>
-          </div>
-          <div style="background: #fef3c7; border: 1px solid #f59e0b; padding: 20px; border-radius: 0 0 8px 8px;">
-            <h2 style="margin: 0 0 15px; color: #92400e;">Document Ready for Download</h2>
-            <p style="margin: 0 0 15px; color: #78350f;">Your <strong>${documentName}</strong> has been generated and is ready for download.</p>
-            <a href="${downloadUrl}" style="display: inline-block; background: #ea580c; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600;">Download PDF</a>
-            <p style="margin: 20px 0 0; font-size: 12px; color: #78350f;">This link expires in 7 days. For security, do not share this link.</p>
-            <hr style="border-color: #f59e0b; margin: 20px 0;">
-            <p style="margin: 0; font-size: 12px; color: #78350f;">If you didn't request this document, please ignore this email or contact support.</p>
-          </div>
+          <h2 style="color: #ea580c;">Your Document is Ready</h2>
+          <p>Your <strong>${documentType}</strong> has been generated successfully.</p>
+          <p style="text-align: center; margin: 30px 0;">
+            <a href="${downloadUrl}" style="background: #ea580c; color: white; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600;">Download PDF</a>
+          </p>
+          <p style="color: #666; font-size: 14px;">This link expires in 7 days. For security, please download and save your document.</p>
+          <hr style="margin: 30px 0; border-color: #eee;">
+          <p style="color: #999; font-size: 12px;">Generated by Ezekiel Docs - Legal documents for Kenyan businesses.</p>
         </div>
       `,
     });
-  } catch (error) {
-    console.error('Failed to send confirmation email:', error);
+  } catch (err) {
+    console.error('Email send failed:', err);
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const body: GenerateRequest = await request.json();
+    const body = await request.json();
     const { documentType, formData, recaptchaToken } = body;
 
-    if (!documentType || !formData) {
+    if (!documentType || !formData || !recaptchaToken) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
     // Verify reCAPTCHA
-    const recaptchaResult = await verifyRecaptcha(recaptchaToken || '');
-    if (!recaptchaResult.success || recaptchaResult.score < 0.5) {
-      return NextResponse.json({ requireV2: true, error: 'reCAPTCHA verification failed' }, { status: 400 });
+    const recaptchaResult = await verifyRecaptcha(recaptchaToken);
+    if (!recaptchaResult.success || (recaptchaResult.score && recaptchaResult.score < 0.5)) {
+      return NextResponse.json({ requireV2: true }, { status: 400 });
     }
 
     // Generate PDF
-    const pdfBuffer = generateDocumentPDF(documentType, formData);
+    const pdfBuffer = generatePDF(documentType, formData);
 
     // Upload to Vercel Blob
-    if (!BLOB_READ_WRITE_TOKEN) {
-      return NextResponse.json({ error: 'Storage not configured' }, { status: 500 });
-    }
-
     const filename = `${documentType}-${Date.now()}.pdf`;
-    const blob = await put(filename, Buffer.from(pdfBuffer), {
+    const blob = await put(filename, pdfBuffer, {
       access: 'public',
       token: BLOB_READ_WRITE_TOKEN,
       addRandomSuffix: true,
     });
 
     // Send confirmation email if email provided
-    const email = formData.email || formData.employeeEmail || formData.clientEmail || formData.buyerEmail || formData.tenantEmail;
+    const email = formData.email || formData.clientEmail || formData.party1Email;
     if (email && email.includes('@')) {
-      const docNames: Record<string, string> = {
-        'nda': 'Non-Disclosure Agreement',
-        'service-agreement': 'Service Agreement',
-        'employment-contract': 'Employment Contract',
-        'freelancer-contract': 'Freelancer Contract',
-        'sale-agreement': 'Sale Agreement',
-        'tenancy-agreement': 'Tenancy Agreement',
-      };
-      await sendConfirmationEmail(email, docNames[documentType] || 'Document', blob.url);
+      await sendConfirmationEmail(email, blob.url, documentType);
     }
 
-    return NextResponse.json({ success: true, downloadUrl: blob.url });
-  } catch (error: any) {
+    return NextResponse.json({ downloadUrl: blob.url });
+  } catch (error) {
     console.error('Generate document error:', error);
-    return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to generate document' }, { status: 500 });
   }
 }
