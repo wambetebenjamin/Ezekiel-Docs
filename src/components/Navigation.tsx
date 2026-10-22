@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Menu, X, Sun, Moon, Monitor, MessageCircle } from 'lucide-react';
+import { Menu, X, Sun, Moon, Monitor, MessageCircle, ChevronDown } from 'lucide-react';
 
 const navigation = [
   { name: 'Home', href: '/' },
@@ -16,6 +16,8 @@ export function Navigation() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark' | 'auto'>('auto');
+  const [themeDropdownOpen, setThemeDropdownOpen] = useState(false);
+  const [mobileThemeDropdownOpen, setMobileThemeDropdownOpen] = useState(false);
   const pathname = usePathname();
 
   useEffect(() => {
@@ -39,6 +41,8 @@ export function Navigation() {
 
   useEffect(() => {
     setMobileMenuOpen(false);
+    setThemeDropdownOpen(false);
+    setMobileThemeDropdownOpen(false);
   }, [pathname]);
 
   const handleThemeChange = (newTheme: 'light' | 'dark' | 'auto') => {
@@ -48,6 +52,8 @@ export function Navigation() {
       ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
       : newTheme;
     document.documentElement.setAttribute('data-bs-theme', resolvedTheme);
+    setThemeDropdownOpen(false);
+    setMobileThemeDropdownOpen(false);
   };
 
   const themeIcons = {
@@ -59,10 +65,38 @@ export function Navigation() {
   const themeLabels = {
     light: 'Light',
     dark: 'Dark',
-    auto: 'Auto',
+    auto: 'System',
   };
 
   const whatsappHref = 'https://wa.me/254112272061?text=Hi%20Ezekiel%20Docs%2C%20I%20need%20help%20with%20a%20legal%20document';
+
+  const themeOptions = [
+    { value: 'light' as const, label: 'Light', icon: <Sun className="w-5 h-5" /> },
+    { value: 'dark' as const, label: 'Dark', icon: <Moon className="w-5 h-5" /> },
+    { value: 'auto' as const, label: 'System', icon: <Monitor className="w-5 h-5" /> },
+  ];
+
+  const renderThemeOption = (option: typeof themeOptions[0], isActive: boolean, onClick: () => void) => (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
+        isActive
+          ? 'bg-primary/10 text-primary'
+          : 'text-body-secondary hover:bg-body-secondary hover:text-body-emphasis'
+      }`}
+      role="menuitemradio"
+      aria-checked={isActive}
+    >
+      <span className="flex-shrink-0 w-5 h-5">{option.icon}</span>
+      <span className="flex-1 text-left">{option.label}</span>
+      {isActive && (
+        <svg className="w-5 h-5 text-primary flex-shrink-0" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z" />
+        </svg>
+      )}
+    </button>
+  );
 
   return (
     <header
@@ -123,49 +157,55 @@ export function Navigation() {
 
             {/* Desktop Actions */}
             <div className="d-none d-xl-flex align-items-center gap-2 ms-2">
-              {/* Theme Toggle */}
-              <div className="dropdown">
+              {/* Theme Toggle - Desktop */}
+              <div className="relative">
                 <button
-                  className="btn btn-ghost btn-sm rounded-lg d-flex align-items-center gap-1 p-2"
-                  id="bd-theme"
-                  type="button"
-                  aria-expanded="false"
-                  data-bs-toggle="dropdown"
-                  aria-label={`Toggle theme (${theme})`}
-                  style={{ minWidth: 'auto' }}
+                  onClick={() => setThemeDropdownOpen(!themeDropdownOpen)}
+                  className="btn btn-ghost btn-sm rounded-lg d-flex align-items-center gap-2 px-3 py-2"
+                  aria-expanded={themeDropdownOpen}
+                  aria-haspopup="true"
+                  aria-label={`Theme: ${themeLabels[theme]}. Click to change.`}
                 >
-                  {themeIcons[theme]}
-                  <span className="visually-hidden">Toggle theme</span>
+                  <span className="d-flex align-items-center justify-content-center w-9 h-9 rounded-full bg-body-tertiary">
+                    {themeIcons[theme]}
+                  </span>
+                  <ChevronDown className="w-4 h-4 text-body-tertiary" />
                 </button>
 
-                <ul
-                  className="dropdown-menu dropdown-menu-end dropdown-menu-hover rounded-lg shadow-lg border-0 bg-body-tertiary p-1"
-                  aria-labelledby="bd-theme-text"
-                  role="menu"
-                >
-                  {(['light', 'dark', 'auto'] as const).map((t) => (
-                    <li key={t}>
-                      <button
-                        type="button"
-                        className={`dropdown-item d-flex align-items-center gap-2 rounded px-3 py-2 ${theme === t ? 'bg-primary/10 text-primary' : 'text-body-secondary hover:bg-body-secondary'}`}
-                        data-bs-theme-value={t}
-                        aria-pressed={theme === t}
-                        role="menuitemradio"
-                        onClick={() => handleThemeChange(t)}
-                      >
-                        {themeIcons[t]}
-                        <span>{themeLabels[t]}</span>
-                        {theme === t && (
-                          <span className="ms-auto text-primary">
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                              <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z" />
-                            </svg>
-                          </span>
-                        )}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                {themeDropdownOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setThemeDropdownOpen(false)}
+                      aria-hidden="true"
+                    />
+                    <div className="absolute right-0 mt-2 w-48 z-50 animate-fade-in">
+                      <div className="bg-body-bg rounded-xl shadow-lg border border-border overflow-hidden p-1">
+                        {themeOptions.map((option) => (
+                          <button
+                            key={option.value}
+                            onClick={() => handleThemeChange(option.value)}
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
+                              theme === option.value
+                                ? 'bg-primary/10 text-primary'
+                                : 'text-body-secondary hover:bg-body-secondary hover:text-body-emphasis'
+                            }`}
+                            role="menuitemradio"
+                            aria-checked={theme === option.value}
+                          >
+                            <span className="flex-shrink-0 w-5 h-5">{option.icon}</span>
+                            <span className="flex-1 text-left">{option.label}</span>
+                            {theme === option.value && (
+                              <svg className="w-5 h-5 text-primary flex-shrink-0" viewBox="0 0 16 16" fill="currentColor">
+                                <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z" />
+                              </svg>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* WhatsApp Button - Desktop */}
@@ -268,52 +308,58 @@ export function Navigation() {
 
             <div className="border-t border-border pt-4">
               {/* Theme Toggle - Mobile */}
-              <div className="dropdown mb-3">
+              <div className="relative mb-3">
                 <button
+                  onClick={() => setMobileThemeDropdownOpen(!mobileThemeDropdownOpen)}
                   className="btn btn-outline btn-sm rounded-lg d-flex align-items-center justify-content-between w-100 py-3 px-4"
-                  id="bd-theme-mobile"
-                  type="button"
-                  aria-expanded="false"
-                  data-bs-toggle="dropdown"
-                  aria-label={`Toggle theme (${theme})`}
+                  aria-expanded={mobileThemeDropdownOpen}
+                  aria-haspopup="true"
+                  aria-label={`Theme: ${themeLabels[theme]}. Click to change.`}
                 >
                   <span className="d-flex align-items-center gap-2">
-                    {themeIcons[theme]}
+                    <span className="d-flex align-items-center justify-content-center w-9 h-9 rounded-full bg-body-tertiary">
+                      {themeIcons[theme]}
+                    </span>
                     <span className="font-medium">Theme</span>
                   </span>
                   <span className="text-body-tertiary">{themeLabels[theme]}</span>
+                  <ChevronDown className={`w-4 h-4 text-body-tertiary transition-transform ${mobileThemeDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
 
-                <ul
-                  className="dropdown-menu dropdown-menu-end dropdown-menu-hover rounded-lg shadow-lg border-0 bg-body-tertiary p-1 w-100"
-                  aria-labelledby="bd-theme-mobile"
-                  role="menu"
-                >
-                  {(['light', 'dark', 'auto'] as const).map((t) => (
-                    <li key={t}>
-                      <button
-                        type="button"
-                        className={`dropdown-item d-flex align-items-center gap-3 rounded px-4 py-3 ${theme === t ? 'bg-primary/10 text-primary' : 'text-body-secondary hover:bg-body-secondary'}`}
-                        data-bs-theme-value={t}
-                        aria-pressed={theme === t}
-                        role="menuitemradio"
-                        onClick={() => handleThemeChange(t)}
-                      >
-                        <span className="d-flex align-items-center gap-3 w-100">
-                          {themeIcons[t]}
-                          <span className="font-medium">{themeLabels[t]}</span>
-                          {theme === t && (
-                            <span className="ms-auto text-primary">
-                              <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+                {mobileThemeDropdownOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setMobileThemeDropdownOpen(false)}
+                      aria-hidden="true"
+                    />
+                    <div className="absolute bottom-full left-0 right-0 mb-2 animate-fade-in">
+                      <div className="bg-body-bg rounded-xl shadow-lg border border-border overflow-hidden p-1">
+                        {themeOptions.map((option) => (
+                          <button
+                            key={option.value}
+                            onClick={() => handleThemeChange(option.value)}
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
+                              theme === option.value
+                                ? 'bg-primary/10 text-primary'
+                                : 'text-body-secondary hover:bg-body-secondary hover:text-body-emphasis'
+                            }`}
+                            role="menuitemradio"
+                            aria-checked={theme === option.value}
+                          >
+                            <span className="flex-shrink-0 w-5 h-5">{option.icon}</span>
+                            <span className="flex-1 text-left">{option.label}</span>
+                            {theme === option.value && (
+                              <svg className="w-5 h-5 text-primary flex-shrink-0" viewBox="0 0 16 16" fill="currentColor">
                                 <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z" />
                               </svg>
-                            </span>
-                          )}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* WhatsApp Button - Mobile */}
