@@ -1,29 +1,45 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { MessageCircle } from 'lucide-react';
+import { MessageCircle, X } from 'lucide-react';
+import { WHATSAPP_HREF } from '@/lib/constants';
 
 export function WhatsAppButton() {
-  const [visible, setVisible] = useState(false);
+  const [showTooltip, setShowTooltip] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => setVisible(true), 500);
+    const timer = setTimeout(() => setShowTooltip(false), 5000);
     return () => clearTimeout(timer);
   }, []);
 
-  const whatsappUrl = 'https://wa.me/254112272061?text=Hi%20Ezekiel%20Docs%2C%20I%20need%20help%20with%20a%20legal%20document';
-
   return (
-    <a
-      href={whatsappUrl}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={`fixed bottom-safe right-6 z-[9998] w-14 h-14 rounded-full bg-green-500 text-white flex items-center justify-center shadow-lg transition-all duration-300 hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 ${visible ? 'opacity-100 translate-y-0 animate-pulse' : 'opacity-0 translate-y-4'}`}
-      aria-label="Chat with us on WhatsApp"
-      title="Chat with us on WhatsApp"
-    >
-      <MessageCircle className="w-7 h-7" aria-hidden="true" />
-      <span className="sr-only">Chat with us on WhatsApp</span>
-    </a>
+    <>
+      <a
+        href={WHATSAPP_HREF}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="whatsapp-float"
+        aria-label="Chat with us on WhatsApp"
+        onClick={() => setIsOpen(true)}
+      >
+        <MessageCircle className="w-7 h-7 text-white" />
+      </a>
+
+      {showTooltip && (
+        <div className="fixed bottom-20 right-20 z-9997 animate-fade-in">
+          <div className="bg-body-bg border border-border rounded-lg px-3 py-2 text-sm font-medium text-body-color shadow-lg whitespace-nowrap flex items-center gap-2">
+            <span>Chat with us on WhatsApp</span>
+            <button
+              onClick={() => setShowTooltip(false)}
+              className="text-body-tertiary hover:text-body-emphasis p-1"
+              aria-label="Dismiss tooltip"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
