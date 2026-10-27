@@ -1,0 +1,306 @@
+@import 'tailwindcss';
+
+/* ============================================================
+   Ezekiel Docs design system
+   All brand tokens are defined here as CSS custom properties.
+   ============================================================ */
+
+@theme {
+  /* Primary palette */
+  --color-primary: #1b4332;
+  --color-primary-light: #2d6a4f;
+  --color-primary-lighter: #40916c;
+  --color-accent: #b7e4c7;
+  --color-accent-light: #d8f3dc;
+
+  /* Surfaces */
+  --color-surface: #ffffff;
+  --color-surface-alt: #f8faf9;
+  --color-border: #e2eae6;
+
+  /* Text */
+  --color-text-primary: #0d1f17;
+  --color-text-secondary: #4a6355;
+  --color-text-muted: #7a9488;
+
+  /* Status */
+  --color-error: #b91c1c;
+  --color-success: #166534;
+  --color-warning: #92400e;
+
+  /* Brand channels */
+  --color-whatsapp: #25d366;
+
+  /* Typography */
+  --font-heading: Georgia, 'Times New Roman', serif;
+  --font-sans: var(--font-inter), Inter, system-ui, -apple-system, sans-serif;
+  --font-body: var(--font-inter), Inter, system-ui, -apple-system, sans-serif;
+
+  /* Shape (maximum radius 16px) */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* Shadows: flat, neutral, no glow and no coloured shadows */
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+  --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.15);
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-heading);
+  color: var(--color-text-primary);
+  font-weight: 700;
+}
+
+::selection {
+  background-color: var(--color-accent);
+  color: var(--color-text-primary);
+}
+
+/* Accessible focus on every interactive element */
+a,
+button,
+input,
+select,
+textarea,
+summary,
+[tabindex]:not([tabindex='-1']) {
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px var(--color-surface),
+      0 0 0 4px var(--color-primary);
+    border-radius: var(--radius-sm);
+  }
+}
+
+/* iOS home bar safe areas */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .pb-safe {
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+  }
+  .bottom-safe {
+    bottom: calc(1.5rem + env(safe-area-inset-bottom));
+  }
+}
+
+/* ============================================================
+   Loading screen
+   ============================================================ */
+
+@keyframes ezekiel-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes ezekiel-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ezekiel-progress {
+  from {
+    width: 0%;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+.loading-document-path {
+  stroke-dasharray: 260;
+  stroke-dashoffset: 260;
+  animation: ezekiel-draw 1.2s ease-out forwards;
+}
+
+.loading-wordmark {
+  opacity: 0;
+  animation: ezekiel-fade-in 0.5s ease-out 0.9s forwards;
+}
+
+.loading-progress-fill {
+  animation: ezekiel-progress 2.5s ease-out forwards;
+}
+
+/* ============================================================
+   WhatsApp entrance (plays once on mount only)
+   ============================================================ */
+
+@keyframes ezekiel-pulse-once {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.whatsapp-entrance {
+  animation: ezekiel-pulse-once 0.6s ease-in-out 1;
+}
+
+/* ============================================================
+   Voice tour pulsing ring (only while speaking)
+   ============================================================ */
+
+@keyframes ezekiel-ring {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+
+.voice-ring {
+  animation: ezekiel-ring 1.2s ease-out infinite;
+}
+
+/* ============================================================
+   FAQ accordion: CSS max-height transition only
+   ============================================================ */
+
+.faq-answer {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 300ms ease;
+}
+
+.faq-answer.is-open {
+  max-height: 500px;
+}
+
+.faq-chevron {
+  transition: transform 300ms ease;
+}
+
+.faq-chevron.is-open {
+  transform: rotate(180deg);
+}
+
+/* ============================================================
+   Cookie preference toggle: CSS-only switch
+   ============================================================ */
+
+.cookie-toggle {
+  position: relative;
+  display: inline-block;
+  width: 46px;
+  height: 26px;
+  flex: none;
+}
+
+.cookie-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+
+.cookie-toggle-slider {
+  position: absolute;
+  inset: 0;
+  background-color: var(--color-border);
+  border-radius: 999px;
+  transition: background-color 200ms ease;
+}
+
+.cookie-toggle-slider::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-surface);
+  border-radius: 50%;
+  transition: transform 200ms ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.cookie-toggle input:checked + .cookie-toggle-slider {
+  background-color: var(--color-primary);
+}
+
+.cookie-toggle input:checked + .cookie-toggle-slider::after {
+  transform: translateX(20px);
+}
+
+.cookie-toggle input:disabled + .cookie-toggle-slider {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.cookie-toggle input:focus-visible + .cookie-toggle-slider {
+  box-shadow:
+    0 0 0 2px var(--color-surface),
+    0 0 0 4px var(--color-primary);
+}
+
+/* ============================================================
+   Reduced motion: render final state immediately
+   ============================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .loading-document-path {
+    stroke-dashoffset: 0;
+  }
+
+  .loading-wordmark {
+    opacity: 1;
+  }
+
+  .loading-progress-fill {
+    width: 100%;
+  }
+
+  .voice-ring,
+  .whatsapp-entrance {
+    animation: none;
+  }
+}
